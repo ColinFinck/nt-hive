@@ -1,0 +1,7 @@
+[package]
+name = "nt-hive"
+version = "0.1.0"
+authors = ["Colin Finck <colin@reactos.org>"]
+edition = "2018"
+
+[dependencies]
