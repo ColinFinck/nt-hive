@@ -19,7 +19,7 @@ fn main() -> io::Result<()> {
     let mut buffer = Vec::<u8>::new();
     f.read_to_end(&mut buffer)?;
 
-    let hive = Hive::from_vec(buffer);
-    println!("Validation Result: {:?}", hive.validate());
+    let validation_result = Hive::from_vec(buffer).map(|_hive| ());
+    println!("Validation Result: {:?}", validation_result);
     Ok(())
 }

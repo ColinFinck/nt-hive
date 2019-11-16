@@ -5,3 +5,4 @@ authors = ["Colin Finck <colin@reactos.org>"]
 edition = "2018"
 
 [dependencies]
+memoffset = "0.5.3"
