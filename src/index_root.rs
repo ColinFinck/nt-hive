@@ -1,12 +1,14 @@
-// Copyright 2019 Colin Finck <colin@reactos.org>
+// Copyright 2019-2020 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::fast_leaf::FastLeafIter;
 use crate::hash_leaf::HashLeafIter;
 use crate::index_leaf::IndexLeafIter;
-use crate::key::Key;
+use crate::key::{Key, SubkeyCommon};
+use crate::NtHiveError;
+use core::convert::TryInto;
 use core::mem;
-
+use memoffset::span_of;
 
 /// On-Disk Structure of an Index Root Header.
 /// Every Index Root has an `IndexRootHeader` followed by one or more `IndexRootElement`s.
@@ -44,14 +46,15 @@ impl<'a> IndexRootIter<'a> {
         // Get the `IndexRootHeader` structure at the current offset.
         let header_start = key.hivebin_offset + offset as usize;
         let header_end = header_start + mem::size_of::<IndexRootHeader>();
-        let header_slice = &key.hive.hive_data[header_start..header_end];
-        let header = unsafe { &*(header_slice.as_ptr() as *const IndexRootHeader) };
+        let header_slice = &key.hive.hive_data[key.hivebin_offset + offset as usize..];
 
         // Ensure that this is really an Index Root.
-        assert!(&header.signature == b"ri");
+        let signature = &header_slice[span_of!(IndexRootHeader, signature)];
+        assert!(signature == b"ri");
 
         // Read the number of `IndexRootElement`s and calculate the end offset.
-        let count = u16::from_le(header.count) as usize;
+        let count_bytes = &header_slice[span_of!(IndexRootHeader, count)];
+        let count = u16::from_le_bytes(count_bytes.try_into().unwrap()) as usize;
         let end_offset = header_end + count * mem::size_of::<IndexRootElement>();
 
         // Return an `IndexRootIter` structure to iterate over the keys referred by this Index Root.
@@ -65,7 +68,7 @@ impl<'a> IndexRootIter<'a> {
 }
 
 impl<'a> Iterator for IndexRootIter<'a> {
-    type Item = Key<'a>;
+    type Item = Result<Key<'a>, NtHiveError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut item = None;
@@ -89,39 +92,52 @@ impl<'a> Iterator for IndexRootIter<'a> {
             // So get the next inner iterator.
             if self.current_offset < self.end_offset {
                 // Get the `IndexRootElement` structure at the current offset.
-                let element_start = self.current_offset;
-                let element_end = element_start + mem::size_of::<IndexRootElement>();
-                let element_slice = &self.key.hive.hive_data[element_start..element_end];
-                let element = unsafe { &*(element_slice.as_ptr() as *const IndexRootElement) };
+                let element_slice = &self.key.hive.hive_data[self.current_offset..];
 
                 // Read the offset of this element's Subkeys List from the `IndexRootElement` structure.
-                let subkeys_list_offset = u32::from_le(element.subkeys_list_offset);
+                let subkeys_list_offset_bytes =
+                    &element_slice[span_of!(IndexRootElement, subkeys_list_offset)];
+                let subkeys_list_offset =
+                    u32::from_le_bytes(subkeys_list_offset_bytes.try_into().unwrap());
 
                 // Advance to the next `IndexRootElement`.
                 self.current_offset += mem::size_of::<IndexRootElement>();
 
                 // Read the signature of this Subkeys List.
-                let signature_start = self.key.hivebin_offset + subkeys_list_offset as usize;
-                let signature_end = signature_start + 2;
-                let signature = &self.key.hive.hive_data[signature_start..signature_end];
+                let subkey_slice = &self.key.hive.hive_data
+                    [self.key.hivebin_offset + subkeys_list_offset as usize..];
+                let signature = &subkey_slice[span_of!(SubkeyCommon, signature)];
 
                 // Check the Subkeys List type and create the corresponding inner iterator.
                 self.inner_iter = match signature {
                     b"li" => {
                         // Index Leaf
-                        Some(InnerIterators::IndexLeaf(IndexLeafIter::new(self.key, subkeys_list_offset)))
+                        Some(InnerIterators::IndexLeaf(IndexLeafIter::new(
+                            self.key,
+                            subkeys_list_offset,
+                        )))
                     }
                     b"lf" => {
                         // Fast Leaf
-                        Some(InnerIterators::FastLeaf(FastLeafIter::new(self.key, subkeys_list_offset)))
+                        Some(InnerIterators::FastLeaf(FastLeafIter::new(
+                            self.key,
+                            subkeys_list_offset,
+                        )))
                     }
                     b"lh" => {
                         // Hash Leaf
-                        Some(InnerIterators::HashLeaf(HashLeafIter::new(self.key, subkeys_list_offset)))
+                        Some(InnerIterators::HashLeaf(HashLeafIter::new(
+                            self.key,
+                            subkeys_list_offset,
+                        )))
                     }
                     _ => {
-                        // TODO: Better error handling
-                        panic!("Unknown signature");
+                        return Some(Err(NtHiveError::InvalidSignature {
+                            actual: signature.to_vec(),
+                            expected: b"li|lf|lh".to_vec(),
+                            offset: signature.as_ptr() as usize
+                                - self.key.hive.hive_data.as_ptr() as usize,
+                        }));
                     }
                 };
             } else {

@@ -1,4 +1,4 @@
-// Copyright 2019 Colin Finck <colin@reactos.org>
+// Copyright 2019-2020 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::fast_leaf::FastLeafIter;
@@ -6,8 +6,9 @@ use crate::hash_leaf::HashLeafIter;
 use crate::hive::Hive;
 use crate::index_leaf::IndexLeafIter;
 use crate::index_root::IndexRootIter;
-use core::mem;
-
+use crate::NtHiveError;
+use core::convert::TryInto;
+use memoffset::span_of;
 
 /// On-Disk Structure of a Key Node
 #[repr(C, packed)]
@@ -34,61 +35,43 @@ struct KeyNode {
     class_name_length: u32,
 }
 
+/// Common fields of all subkey types (Index Root, Index Leaf, Fast Leaf, Hash Leaf)
+#[repr(C, packed)]
+pub(crate) struct SubkeyCommon {
+    pub(crate) signature: [u8; 2],
+}
+
 pub struct Key<'a> {
     pub(crate) hive: &'a Hive,
     pub(crate) hivebin_offset: usize,
     pub(crate) cell_offset: usize,
 }
 
-#[derive(Debug)]
-pub enum KeyError {
-    InvalidSignature,
-}
-
 impl<'a> Key<'a> {
-    fn key_node(&self) -> &KeyNode {
-        let key_node_size = mem::size_of::<KeyNode>();
-        let key_node_slice = &self.hive.hive_data[self.cell_offset..key_node_size];
-        let key_node = unsafe { &*(key_node_slice.as_ptr() as *const KeyNode) };
-        key_node
+    pub fn subkeys(&self) -> Result<Subkeys, NtHiveError> {
+        let key_node_slice = &self.hive.hive_data[self.cell_offset..];
+        let offset_bytes = &key_node_slice[span_of!(KeyNode, subkeys_list_offset)];
+        let offset = u32::from_le_bytes(offset_bytes.try_into().unwrap());
+
+        Subkeys::new(self, offset)
     }
 
-    pub fn subkeys(&self) -> Subkeys {
-        let key_node = self.key_node();
-        let offset = u32::from_le(key_node.subkeys_list_offset);
+    pub fn validate(&self) -> Result<(), NtHiveError> {
+        let key_node_slice = &self.hive.hive_data[self.cell_offset..];
+        let signature = &key_node_slice[span_of!(KeyNode, signature)];
+        let expected_signature = b"nk";
 
-        Subkeys {
-            key: self,
-            offset: offset,
-        }
-    }
-
-    pub fn validate(&self) -> Result<(), KeyError> {
-        let key_node = self.key_node();
-        if &key_node.signature == b"nk" {
+        if signature == expected_signature {
             Ok(())
         } else {
-            Err(KeyError::InvalidSignature)
+            Err(NtHiveError::InvalidSignature {
+                actual: signature.to_vec(),
+                expected: expected_signature.to_vec(),
+                offset: signature.as_ptr() as usize - self.hive.hive_data.as_ptr() as usize,
+            })
         }
     }
 }
-
-pub struct Subkeys<'a> {
-    key: &'a Key<'a>,
-    offset: u32,
-}
-
-impl<'a> Subkeys<'a> {
-    pub fn find(&self, name: &str) -> Option<Key> {
-        // TODO
-        None
-    }
-
-    pub fn iter(&self) -> SubkeyIter {
-        SubkeyIter::new(self.key, self.offset)
-    }
-}
-
 
 enum SubkeyIterators<'a> {
     FastLeaf(FastLeafIter<'a>),
@@ -97,16 +80,15 @@ enum SubkeyIterators<'a> {
     IndexRoot(IndexRootIter<'a>),
 }
 
-pub struct SubkeyIter<'a> {
+pub struct Subkeys<'a> {
     inner_iter: SubkeyIterators<'a>,
 }
 
-impl<'a> SubkeyIter<'a> {
-    fn new(key: &'a Key<'a>, offset: u32) -> Self {
+impl<'a> Subkeys<'a> {
+    fn new(key: &'a Key<'a>, offset: u32) -> Result<Self, NtHiveError> {
         // Read the signature of this Subkeys List.
-        let signature_start = key.hivebin_offset + offset as usize;
-        let signature_end = signature_start + 2;
-        let signature = &key.hive.hive_data[signature_start..signature_end];
+        let subkey_slice = &key.hive.hive_data[key.hivebin_offset + offset as usize..];
+        let signature = &subkey_slice[span_of!(SubkeyCommon, signature)];
 
         // Check the Subkeys List type and create the corresponding inner iterator.
         let inner_iter = match signature {
@@ -127,19 +109,22 @@ impl<'a> SubkeyIter<'a> {
                 SubkeyIterators::HashLeaf(HashLeafIter::new(key, offset))
             }
             _ => {
-                // TODO: Better error handling
-                panic!("Unknown signature");
+                return Err(NtHiveError::InvalidSignature {
+                    actual: signature.to_vec(),
+                    expected: b"ri|li|lf|lh".to_vec(),
+                    offset: signature.as_ptr() as usize - key.hive.hive_data.as_ptr() as usize,
+                });
             }
         };
 
-        Self {
+        Ok(Self {
             inner_iter: inner_iter,
-        }
+        })
     }
 }
 
-impl<'a> Iterator for SubkeyIter<'a> {
-    type Item = Key<'a>;
+impl<'a> Iterator for Subkeys<'a> {
+    type Item = Result<Key<'a>, NtHiveError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.inner_iter {
