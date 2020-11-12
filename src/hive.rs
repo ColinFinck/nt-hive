@@ -1,11 +1,19 @@
 // Copyright 2019-2020 Colin Finck <colin@reactos.org>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-2.0-or-later
 
-use crate::key::Key;
-use crate::NtHiveError;
+use crate::error::{NtHiveError, Result};
+use crate::key_node::KeyNode;
+use ::byteorder::LittleEndian;
 use core::convert::TryInto;
+use core::ops::Range;
 use core::{mem, u32};
-use memoffset::{offset_of, span_of};
+use zerocopy::*;
+
+#[derive(AsBytes, FromBytes, Unaligned)]
+#[repr(packed)]
+pub(crate) struct CellHeader {
+    size: I32<LittleEndian>,
+}
 
 #[repr(u32)]
 pub enum HiveMinorVersions {
@@ -31,142 +39,176 @@ enum HiveFileFormats {
     Memory = 1,
 }
 
-#[repr(C, packed)]
-struct HiveBaseBlock {
+#[allow(dead_code)]
+#[derive(AsBytes, FromBytes, Unaligned)]
+#[repr(packed)]
+pub(crate) struct HiveBaseBlock {
     signature: [u8; 4],
-    primary_sequence_number: u32,
-    secondary_sequence_number: u32,
-    timestamp: u64,
-    major_version: u32,
-    minor_version: u32,
-    file_type: u32,
-    file_format: u32,
-    root_cell_offset: u32,
-    data_size: u32,
-    clustering_factor: u32,
-    file_name: [u16; 32],
-    reserved1: [u8; 396],
-    checksum: u32,
-    reserved2: [u8; 3576],
-    boot_type: u32,
-    boot_recover: u32,
+    primary_sequence_number: U32<LittleEndian>,
+    secondary_sequence_number: U32<LittleEndian>,
+    timestamp: U64<LittleEndian>,
+    major_version: U32<LittleEndian>,
+    minor_version: U32<LittleEndian>,
+    file_type: U32<LittleEndian>,
+    file_format: U32<LittleEndian>,
+    root_cell_offset: U32<LittleEndian>,
+    data_size: U32<LittleEndian>,
+    clustering_factor: U32<LittleEndian>,
+    file_name: [U16<LittleEndian>; 32],
+    padding_1: [u8; 256],
+    padding_2: [u8; 128],
+    padding_3: [u8; 12],
+    checksum: U32<LittleEndian>,
+    padding_4: [u8; 2048],
+    padding_5: [u8; 1024],
+    padding_6: [u8; 256],
+    padding_7: [u8; 236],
+    padding_8: [u8; 12],
+    boot_type: U32<LittleEndian>,
+    boot_recover: U32<LittleEndian>,
 }
 
-#[repr(C, packed)]
-struct HiveBin {
-    signature: [u8; 4],
-    offset: u32,
-    size: u32,
-    reserved: [u8; 8],
-    timestamp: u64,
-    spare: u32,
+pub struct Hive<B: ByteSlice> {
+    pub(crate) base_block: LayoutVerified<B, HiveBaseBlock>,
+    pub(crate) data: B,
 }
 
-#[repr(C, packed)]
-struct HiveCell {
-    size: i32,
-}
-
-pub struct Hive {
-    pub(crate) hive_data: Vec<u8>,
-}
-
-impl Hive {
+impl<B> Hive<B>
+where
+    B: ByteSlice,
+{
     /// Converts a vector of bytes to a `Hive`.
     ///
     /// This function calls [`validate`] on the passed bytes to check the
     /// hive's basic block and rejects any hive that fails validation.
-    ///
-    /// If you are writing an application to repair a corrupted NT hive, you may
-    /// want to use [`from_vec_unchecked`] instead.
-    pub fn from_vec(hive_data: Vec<u8>) -> Result<Self, NtHiveError> {
-        let hive = Self {
-            hive_data: hive_data,
-        };
+    pub fn new(bytes: B) -> Result<Self> {
+        let length = bytes.len();
+        let (base_block, data) = LayoutVerified::new_from_prefix(bytes).ok_or_else(|| {
+            NtHiveError::InvalidHeaderSize {
+                offset: 0,
+                expected: mem::size_of::<HiveBaseBlock>(),
+                actual: length,
+            }
+        })?;
+
+        let hive = Self { base_block, data };
         hive.validate()?;
+
         Ok(hive)
     }
 
-    /// Converts a vector of bytes to a `Hive`, without validation.
-    ///
-    /// This enables you to work on a corrupted NT hive.
-    /// Note that due to the skipped validation, subsequent functions may panic
-    /// if they try to access data outside the boundary of the passed vector.
-    /// You are advised to use [`from_vec`] whenever possible.
-    pub fn from_vec_unchecked(hive_data: Vec<u8>) -> Self {
-        Self {
-            hive_data: hive_data,
+    pub(crate) fn cell_range_from_data_offset(&self, data_offset: u32) -> Result<Range<usize>> {
+        // Only valid data offsets are accepted here.
+        assert!(data_offset != u32::MAX);
+
+        // Accept only u32 data offsets, but convert them into usize right away for
+        // slice range operations and fearless calculations.
+        let data_offset = data_offset as usize;
+
+        // Get the cell header.
+        let remaining_length = self.data.len().saturating_sub(data_offset);
+        let cell_header_end = data_offset + mem::size_of::<CellHeader>();
+        let bytes = self.data.get(data_offset..cell_header_end).ok_or_else(|| {
+            NtHiveError::InvalidHeaderSize {
+                offset: self.offset_of_data_offset(data_offset),
+                expected: mem::size_of::<CellHeader>(),
+                actual: remaining_length,
+            }
+        })?;
+
+        // After the check above, the following operation must succeed, so we can just `unwrap`.
+        let header = LayoutVerified::<&[u8], CellHeader>::new(bytes).unwrap();
+        let cell_size = header.size.get();
+
+        // A cell with size > 0 is unallocated and shouldn't be processed any further by us.
+        if cell_size > 0 {
+            return Err(NtHiveError::UnallocatedCell {
+                offset: self.offset_of_data_offset(data_offset),
+                size: cell_size,
+            });
         }
+        let cell_size = cell_size.abs() as usize;
+
+        // The cell size must be a multiple of 8 bytes
+        let expected_alignment = 8;
+        if cell_size % expected_alignment != 0 {
+            return Err(NtHiveError::InvalidSizeFieldAlignment {
+                offset: self.offset_of_field(&header.size),
+                size: cell_size,
+                expected_alignment,
+            });
+        }
+
+        // Does the size go beyond our hive data?
+        let remaining_length = self.data.len().saturating_sub(cell_header_end);
+        let cell_data_range = cell_header_end..cell_header_end + cell_size;
+        if cell_data_range.end > self.data.len() {
+            return Err(NtHiveError::InvalidSizeField {
+                offset: self.offset_of_field(&header.size),
+                expected: mem::size_of::<CellHeader>() + cell_size,
+                actual: remaining_length,
+            });
+        }
+
+        Ok(cell_data_range)
+    }
+
+    /// Calculate a field's offset from the very beginning of the hive bytes.
+    pub(crate) fn offset_of_field<T>(&self, field: &T) -> usize {
+        let field_address = field as *const T as usize;
+        let base_address = self.base_block.bytes().as_ptr() as usize;
+
+        assert!(field_address > base_address);
+        field_address - base_address
+    }
+
+    /// Calculate a data offset's offset from the very beginning of the hive bytes.
+    pub(crate) fn offset_of_data_offset(&self, data_offset: usize) -> usize {
+        data_offset + mem::size_of::<HiveBaseBlock>()
     }
 
     /// Returns the major version of this hive.
     ///
     /// The only known value is `1`.
     pub fn major_version(&self) -> u32 {
-        let bytes = &self.hive_data[span_of!(HiveBaseBlock, major_version)];
-        u32::from_le_bytes(bytes.try_into().unwrap())
+        self.base_block.major_version.get()
     }
 
     /// Returns the minor version of this hive.
     ///
     /// Known values can be found in [`HiveMinorVersions`].
     pub fn minor_version(&self) -> u32 {
-        let bytes = &self.hive_data[span_of!(HiveBaseBlock, minor_version)];
-        u32::from_le_bytes(bytes.try_into().unwrap())
+        self.base_block.minor_version.get()
     }
 
-    /// Returns the root [`Key`] of this hive.
-    ///
-    /// The stored root cell offset pointing to this key has already been
-    /// validated through [`validate_root_cell_offset`].
-    pub fn root_key(&self) -> Result<Key, NtHiveError> {
-        let hivebin_offset = mem::size_of::<HiveBaseBlock>();
-        let root_cell_offset_bytes = &self.hive_data[span_of!(HiveBaseBlock, root_cell_offset)];
-        let root_cell_offset = u32::from_le_bytes(root_cell_offset_bytes.try_into().unwrap());
-        let cell_offset = hivebin_offset + root_cell_offset as usize;
+    /// Returns the root [`KeyNode`] of this hive.
+    pub fn root_key_node(&self) -> Result<KeyNode<&Self, B>> {
+        let root_cell_offset = self.base_block.root_cell_offset.get();
+        let cell_range = self.cell_range_from_data_offset(root_cell_offset)?;
 
-        let key = Key {
-            hive: self,
-            hivebin_offset: hivebin_offset,
-            cell_offset: cell_offset,
-        };
-        key.validate()?;
-        Ok(key)
+        KeyNode::new(self, cell_range)
     }
 
     /// Performs all validations on this hive.
-    pub fn validate(&self) -> Result<(), NtHiveError> {
-        self.validate_base_block_size()?;
+    fn validate(&self) -> Result<()> {
         self.validate_signature()?;
         self.validate_sequence_numbers()?;
         self.validate_version()?;
         self.validate_file_type()?;
         self.validate_file_format()?;
-        self.validate_root_cell_offset()?;
         self.validate_data_size()?;
         self.validate_clustering_factor()?;
         self.validate_checksum()?;
         Ok(())
     }
 
-    pub fn validate_base_block_size(&self) -> Result<(), NtHiveError> {
-        if mem::size_of::<HiveBaseBlock>() <= self.hive_data.len() {
-            Ok(())
-        } else {
-            Err(NtHiveError::InvalidBaseBlockSize {
-                actual: self.hive_data.len(),
-                expected: mem::size_of::<HiveBaseBlock>(),
-            })
-        }
-    }
+    fn validate_checksum(&self) -> Result<()> {
+        let checksum_offset = self.offset_of_field(&self.base_block.checksum);
 
-    pub fn validate_checksum(&self) -> Result<(), NtHiveError> {
-        let checksum_offset = offset_of!(HiveBaseBlock, checksum);
-
-        // Calculate the XOR-32 checksum of all bytes preceding the checksum
-        // field.
+        // Calculate the XOR-32 checksum of all bytes preceding the checksum field.
         let mut calculated_checksum = 0;
-        for dword_bytes in self.hive_data[..checksum_offset].chunks(mem::size_of::<u32>()) {
+        for dword_bytes in self.base_block.bytes()[..checksum_offset].chunks(mem::size_of::<u32>())
+        {
             let dword = u32::from_le_bytes(dword_bytes.try_into().unwrap());
             calculated_checksum ^= dword;
         }
@@ -178,126 +220,138 @@ impl Hive {
         }
 
         // Compare the calculated checksum with the stored one.
-        let checksum_bytes = &self.hive_data[span_of!(HiveBaseBlock, checksum)];
-        let checksum = u32::from_le_bytes(checksum_bytes.try_into().unwrap());
-
+        let checksum = self.base_block.checksum.get();
         if checksum == calculated_checksum {
             Ok(())
         } else {
             Err(NtHiveError::InvalidChecksum {
-                actual: calculated_checksum,
                 expected: checksum,
+                actual: calculated_checksum,
             })
         }
     }
 
-    pub fn validate_clustering_factor(&self) -> Result<(), NtHiveError> {
-        let clustering_factor_bytes = &self.hive_data[span_of!(HiveBaseBlock, clustering_factor)];
-        let clustering_factor = u32::from_le_bytes(clustering_factor_bytes.try_into().unwrap());
+    fn validate_clustering_factor(&self) -> Result<()> {
+        let clustering_factor = self.base_block.clustering_factor.get();
+        let expected_clustering_factor = 1;
 
-        if clustering_factor == 1 {
+        if clustering_factor == expected_clustering_factor {
             Ok(())
         } else {
             Err(NtHiveError::UnsupportedClusteringFactor {
-                clustering_factor: clustering_factor,
+                expected: expected_clustering_factor,
+                actual: clustering_factor,
             })
         }
     }
 
-    pub fn validate_data_size(&self) -> Result<(), NtHiveError> {
-        let data_size_bytes = &self.hive_data[span_of!(HiveBaseBlock, data_size)];
-        let data_size = u32::from_le_bytes(data_size_bytes.try_into().unwrap());
-        let expected_size = mem::size_of::<HiveBaseBlock>() + data_size as usize;
+    fn validate_data_size(&self) -> Result<()> {
+        let data_size = self.base_block.data_size.get() as usize;
+        let expected_alignment = 4096;
 
-        if expected_size <= self.hive_data.len() {
+        // The data size must be a multiple of 4096 bytes
+        if data_size % expected_alignment != 0 {
+            return Err(NtHiveError::InvalidSizeFieldAlignment {
+                offset: self.offset_of_field(&self.base_block.data_size),
+                size: data_size,
+                expected_alignment,
+            });
+        }
+
+        // Does the size go beyond our hive data?
+        if data_size > self.data.len() {
+            return Err(NtHiveError::InvalidSizeField {
+                offset: self.offset_of_field(&self.base_block.data_size),
+                expected: data_size,
+                actual: self.data.len(),
+            });
+        }
+
+        Ok(())
+    }
+
+    fn validate_file_format(&self) -> Result<()> {
+        let file_format = self.base_block.file_format.get();
+        let expected_file_format = HiveFileFormats::Memory as u32;
+
+        if file_format == expected_file_format {
             Ok(())
         } else {
-            Err(NtHiveError::InvalidDataSize {
-                actual: self.hive_data.len(),
-                expected: expected_size,
+            Err(NtHiveError::UnsupportedFileFormat {
+                expected: expected_file_format,
+                actual: file_format,
             })
         }
     }
 
-    pub fn validate_file_format(&self) -> Result<(), NtHiveError> {
-        let file_format_bytes = &self.hive_data[span_of!(HiveBaseBlock, file_format)];
-        let file_format = u32::from_le_bytes(file_format_bytes.try_into().unwrap());
+    fn validate_file_type(&self) -> Result<()> {
+        let file_type = self.base_block.file_type.get();
+        let expected_file_type = HiveFileTypes::Primary as u32;
 
-        if file_format == HiveFileFormats::Memory as u32 {
+        if file_type == expected_file_type {
             Ok(())
         } else {
-            Err(NtHiveError::UnsupportedFileFormat)
-        }
-    }
-
-    pub fn validate_file_type(&self) -> Result<(), NtHiveError> {
-        let file_type_bytes = &self.hive_data[span_of!(HiveBaseBlock, file_type)];
-        let file_type = u32::from_le_bytes(file_type_bytes.try_into().unwrap());
-        if file_type == HiveFileTypes::Primary as u32 {
-            Ok(())
-        } else {
-            Err(NtHiveError::UnsupportedFileType)
-        }
-    }
-
-    pub fn validate_root_cell_offset(&self) -> Result<(), NtHiveError> {
-        let root_cell_offset_bytes = &self.hive_data[span_of!(HiveBaseBlock, root_cell_offset)];
-        let root_cell_offset = u32::from_le_bytes(root_cell_offset_bytes.try_into().unwrap());
-        let actual_begin = mem::size_of::<HiveBaseBlock>() + root_cell_offset as usize;
-
-        if actual_begin <= self.hive_data.len() {
-            Ok(())
-        } else {
-            Err(NtHiveError::InvalidRootCellOffset {
-                actual_begin: actual_begin,
-                maximum_begin: self.hive_data.len(),
+            Err(NtHiveError::UnsupportedFileType {
+                expected: expected_file_type,
+                actual: file_type,
             })
         }
     }
 
-    pub fn validate_sequence_numbers(&self) -> Result<(), NtHiveError> {
-        let primary_sequence_number_bytes =
-            &self.hive_data[span_of!(HiveBaseBlock, primary_sequence_number)];
-        let primary_sequence_number =
-            u32::from_le_bytes(primary_sequence_number_bytes.try_into().unwrap());
-
-        let secondary_sequence_number_bytes =
-            &self.hive_data[span_of!(HiveBaseBlock, secondary_sequence_number)];
-        let secondary_sequence_number =
-            u32::from_le_bytes(secondary_sequence_number_bytes.try_into().unwrap());
+    fn validate_sequence_numbers(&self) -> Result<()> {
+        let primary_sequence_number = self.base_block.primary_sequence_number.get();
+        let secondary_sequence_number = self.base_block.secondary_sequence_number.get();
 
         if primary_sequence_number == secondary_sequence_number {
             Ok(())
         } else {
-            Err(NtHiveError::SequenceMismatch {
+            Err(NtHiveError::SequenceNumberMismatch {
                 primary: primary_sequence_number,
                 secondary: secondary_sequence_number,
             })
         }
     }
 
-    pub fn validate_signature(&self) -> Result<(), NtHiveError> {
-        let signature = &self.hive_data[span_of!(HiveBaseBlock, signature)];
+    fn validate_signature(&self) -> Result<()> {
+        let signature = &self.base_block.signature;
         let expected_signature = b"regf";
 
         if signature == expected_signature {
             Ok(())
         } else {
-            Err(NtHiveError::InvalidSignature {
-                actual: signature.to_vec(),
-                expected: expected_signature.to_vec(),
-                offset: signature.as_ptr() as usize - self.hive_data.as_ptr() as usize,
+            Err(NtHiveError::InvalidFourByteSignature {
+                offset: self.offset_of_field(signature),
+                expected: expected_signature,
+                actual: *signature,
             })
         }
     }
 
-    pub fn validate_version(&self) -> Result<(), NtHiveError> {
-        // We only support NT4 hives as a start.
-        if self.major_version() == 1 && self.minor_version() == HiveMinorVersions::WindowsNT4 as u32
-        {
+    fn validate_version(&self) -> Result<()> {
+        let major = self.major_version();
+        let minor = self.minor_version();
+
+        if major == 1 && minor >= HiveMinorVersions::WindowsNT4 as u32 {
             Ok(())
         } else {
-            Err(NtHiveError::UnsupportedVersion)
+            Err(NtHiveError::UnsupportedVersion { major, minor })
         }
+    }
+}
+
+impl<B> Hive<B>
+where
+    B: ByteSliceMut,
+{
+    pub fn clear_volatile_subkeys(&mut self) -> Result<()> {
+        let mut root_key_node = self.root_key_node_mut()?;
+        root_key_node.clear_volatile_subkeys()
+    }
+
+    pub(crate) fn root_key_node_mut(&mut self) -> Result<KeyNode<&mut Self, B>> {
+        let root_cell_offset = self.base_block.root_cell_offset.get();
+        let cell_range = self.cell_range_from_data_offset(root_cell_offset)?;
+
+        KeyNode::new(self, cell_range)
     }
 }
