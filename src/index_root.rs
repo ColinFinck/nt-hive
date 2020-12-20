@@ -19,7 +19,6 @@ use core::ops::Range;
 use zerocopy::*;
 
 /// On-Disk Structure of an Index Root Element.
-#[allow(dead_code)]
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
 struct IndexRootElement {

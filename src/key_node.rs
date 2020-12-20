@@ -3,6 +3,7 @@
 
 use crate::error::{NtHiveError, Result};
 use crate::hive::Hive;
+use crate::key_values_list::KeyValueIter;
 use crate::string::NtHiveString;
 use crate::subkeys_list::SubkeysList;
 use ::byteorder::LittleEndian;
@@ -50,8 +51,8 @@ struct KeyNodeHeader {
     volatile_subkey_count: U32<LittleEndian>,
     subkeys_list_offset: U32<LittleEndian>,
     volatile_subkeys_list_offset: U32<LittleEndian>,
-    keyvalues_count: U32<LittleEndian>,
-    keyvalues_list_offset: U32<LittleEndian>,
+    key_values_count: U32<LittleEndian>,
+    key_values_list_offset: U32<LittleEndian>,
     key_security_offset: U32<LittleEndian>,
     class_name_offset: U32<LittleEndian>,
     max_subkey_name: U32<LittleEndian>,
@@ -151,6 +152,28 @@ where
                 actual: *signature,
             })
         }
+    }
+
+    pub fn values(&self) -> Option<Result<KeyValueIter<B>>> {
+        let header = self.header();
+        let key_values_list_offset = header.key_values_list_offset.get();
+        if key_values_list_offset == u32::MAX {
+            // This Key Node has no values.
+            return None;
+        }
+
+        let cell_range = iter_try!(self
+            .hive
+            .cell_range_from_data_offset(key_values_list_offset));
+        let count = header.key_values_count.get();
+        let count_field_offset = self.hive.offset_of_field(&header.key_values_count);
+
+        Some(KeyValueIter::new(
+            &self.hive,
+            count,
+            count_field_offset,
+            cell_range,
+        ))
     }
 }
 

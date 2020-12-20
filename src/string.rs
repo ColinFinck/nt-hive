@@ -25,10 +25,10 @@ impl<'a> NtHiveString<'a> {
         match self {
             Self::AsciiExtended(bytes) => String::from_utf8(bytes.to_vec()).ok(),
             Self::Utf16LE(bytes) => {
-                let utf16_iter = bytes
+                let u16_iter = bytes
                     .chunks_exact(2)
-                    .map(|x| u16::from_le_bytes(x.try_into().unwrap()));
-                char::decode_utf16(utf16_iter)
+                    .map(|two_bytes| u16::from_le_bytes(two_bytes.try_into().unwrap()));
+                char::decode_utf16(u16_iter)
                     .map(|x| x.ok())
                     .collect::<Option<String>>()
             }
@@ -42,10 +42,10 @@ impl<'a> NtHiveString<'a> {
         match self {
             Self::AsciiExtended(bytes) => String::from_utf8_lossy(bytes).into_owned(),
             Self::Utf16LE(bytes) => {
-                let utf16_iter = bytes
+                let u16_iter = bytes
                     .chunks_exact(2)
-                    .map(|x| u16::from_le_bytes(x.try_into().unwrap()));
-                char::decode_utf16(utf16_iter)
+                    .map(|two_bytes| u16::from_le_bytes(two_bytes.try_into().unwrap()));
+                char::decode_utf16(u16_iter)
                     .map(|x| x.unwrap_or(char::REPLACEMENT_CHARACTER))
                     .collect()
             }

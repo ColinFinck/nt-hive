@@ -7,6 +7,7 @@ use ::byteorder::LittleEndian;
 use core::convert::TryInto;
 use core::ops::Range;
 use core::{mem, u32};
+use memoffset::offset_of;
 use zerocopy::*;
 
 #[derive(AsBytes, FromBytes, Unaligned)]
@@ -154,6 +155,10 @@ where
     }
 
     /// Calculate a field's offset from the very beginning of the hive bytes.
+    ///
+    /// Note that this function primarily exists to provide absolute hive file offsets when reporting errors.
+    /// It cannot be used to index into the hive bytes, because they are initially split into `base_block`
+    /// and `data`.
     pub(crate) fn offset_of_field<T>(&self, field: &T) -> usize {
         let field_address = field as *const T as usize;
         let base_address = self.base_block.bytes().as_ptr() as usize;
@@ -203,7 +208,7 @@ where
     }
 
     fn validate_checksum(&self) -> Result<()> {
-        let checksum_offset = self.offset_of_field(&self.base_block.checksum);
+        let checksum_offset = offset_of!(HiveBaseBlock, checksum);
 
         // Calculate the XOR-32 checksum of all bytes preceding the checksum field.
         let mut calculated_checksum = 0;

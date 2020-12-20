@@ -6,6 +6,7 @@
 #[macro_use]
 mod macros;
 
+mod big_data;
 mod error;
 mod fast_leaf;
 mod hash_leaf;
@@ -13,12 +14,18 @@ mod hive;
 mod index_leaf;
 mod index_root;
 mod key_node;
+mod key_value;
+mod key_values_list;
 mod string;
 mod subkeys_list;
 
+pub use crate::big_data::*;
+pub use crate::error::*;
 pub use crate::hive::*;
 pub use crate::key_node::*;
+pub use crate::key_value::*;
 pub use crate::string::*;
+pub use crate::subkeys_list::*;
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

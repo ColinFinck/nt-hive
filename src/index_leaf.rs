@@ -15,7 +15,6 @@ use core::ops::Range;
 use zerocopy::*;
 
 /// On-Disk Structure of an Index Leaf Element.
-#[allow(dead_code)]
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
 pub(crate) struct IndexLeafElement {
