@@ -45,11 +45,13 @@ impl IndexRootElement {
         Ok(elements_range)
     }
 
-    fn next_element_range(elements_range: &Range<usize>) -> Option<Range<usize>> {
+    fn next_element_range(elements_range: &mut Range<usize>) -> Option<Range<usize>> {
         let element_range = elements_range.start..elements_range.start + mem::size_of::<Self>();
         if element_range.end > elements_range.end {
             return None;
         }
+
+        elements_range.start += mem::size_of::<Self>();
 
         Some(element_range)
     }
@@ -101,7 +103,7 @@ where
 
             // No inner iterator or the last inner iterator has been fully iterated.
             // So get the next inner iterator.
-            let element_range = IndexRootElement::next_element_range(&self.elements_range)?;
+            let element_range = IndexRootElement::next_element_range(&mut self.elements_range)?;
             let element =
                 LayoutVerified::<&[u8], IndexRootElement>::new(&self.hive.data[element_range])
                     .unwrap();
@@ -147,8 +149,6 @@ where
                 }
                 _ => unreachable!(),
             };
-
-            self.elements_range.start += mem::size_of::<IndexRootElement>();
         }
     }
 }
@@ -231,9 +231,7 @@ where
 
             // No inner iterator or the last inner iterator has been fully iterated.
             // So get the next inner iterator.
-            let element_range = IndexRootElement::next_element_range(&self.elements_range)?;
-            self.elements_range.start += mem::size_of::<IndexRootElement>();
-
+            let element_range = IndexRootElement::next_element_range(&mut self.elements_range)?;
             let element =
                 LayoutVerified::<&[u8], IndexRootElement>::new(&self.hive.data[element_range])
                     .unwrap();

@@ -166,6 +166,8 @@ where
 
         let segment_offset =
             BigDataListElement::next_segment_offset(&self.hive, &mut self.elements_range)?;
+        self.bytes_left -= bytes_to_return;
+
         let cell_range = iter_try!(self.hive.cell_range_from_data_offset(segment_offset));
         if cell_range.len() < bytes_to_return {
             return Some(Err(NtHiveError::InvalidDataSize {
@@ -176,10 +178,6 @@ where
         }
 
         let data_range = cell_range.start..cell_range.start + bytes_to_return;
-
-        self.elements_range.start += mem::size_of::<BigDataListElement>();
-        self.bytes_left -= bytes_to_return;
-
         Some(Ok(&self.hive.data[data_range]))
     }
 

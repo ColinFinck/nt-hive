@@ -97,8 +97,6 @@ where
             IndexLeafElement::next_key_node_offset(&self.hive, &mut self.elements_range)?;
         let cell_range = iter_try!(self.hive.cell_range_from_data_offset(key_node_offset));
         let key_node = iter_try!(KeyNode::new(self.hive, cell_range));
-
-        self.elements_range.start += mem::size_of::<IndexLeafElement>();
         Some(Ok(key_node))
     }
 
@@ -141,8 +139,6 @@ where
             IndexLeafElement::next_key_node_offset(&self.hive, &mut self.elements_range)?;
         let cell_range = iter_try!(self.hive.cell_range_from_data_offset(key_node_offset));
         let key_node = iter_try!(KeyNode::new(&mut *self.hive, cell_range));
-
-        self.elements_range.start += mem::size_of::<IndexLeafElement>();
         Some(Ok(key_node))
     }
 }
