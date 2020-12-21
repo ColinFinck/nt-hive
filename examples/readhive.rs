@@ -34,7 +34,7 @@ fn main() -> Result<(), String> {
     let root_key = hive
         .root_key_node()
         .map_err(|e| format!("Error getting root key: {}", e))?;
-    println!("{}", root_key.key_name().unwrap().to_string_lossy());
+    println!("{}", root_key.name().unwrap().to_string_lossy());
 
     process_subkey(root_key, 0)?;
 
@@ -56,7 +56,7 @@ where
         for key_node in subkey_iter {
             let key_node = key_node.map_err(|e| format!("Error enumerating key: {}", e))?;
             let key_name = key_node
-                .key_name()
+                .name()
                 .map_err(|e| format!("Error getting key name: {}", e))?
                 .to_string_lossy();
 

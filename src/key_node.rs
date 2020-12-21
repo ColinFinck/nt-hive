@@ -103,7 +103,7 @@ where
         LayoutVerified::new(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
-    pub fn key_name(&self) -> Result<NtHiveString> {
+    pub fn name(&self) -> Result<NtHiveString> {
         let header = self.header();
         let flags = KeyNodeFlags::from_bits_truncate(header.flags.get());
         let key_name_length = header.key_name_length.get() as usize;
