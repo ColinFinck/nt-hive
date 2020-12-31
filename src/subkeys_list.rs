@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
-use crate::fast_leaf::{FastLeafIter, FastLeafIterMut};
-use crate::hash_leaf::{HashLeafIter, HashLeafIterMut};
 use crate::hive::Hive;
-use crate::index_leaf::{IndexLeafIter, IndexLeafIterMut};
 use crate::index_root::{IndexRootIter, IndexRootIterMut};
 use crate::key_node::KeyNode;
+use crate::leaf::{LeafIter, LeafIterMut, LeafType};
 use ::byteorder::LittleEndian;
 use core::iter::FusedIterator;
 use core::mem;
@@ -77,35 +75,17 @@ where
         let count_field_offset = self.hive.offset_of_field(&header.count);
 
         match &header.signature {
-            b"lf" => {
-                // Fast Leaf
-                let iter = FastLeafIter::new(
+            b"lf" | b"lh" | b"li" => {
+                // Fast Leaf, Hash Leaf or Index Leaf
+                let leaf_type = LeafType::from_signature(&header.signature).unwrap();
+                let iter = LeafIter::new(
                     &self.hive,
                     count,
                     count_field_offset,
                     self.data_range.clone(),
+                    leaf_type,
                 )?;
-                Ok(SubkeyIter::FastLeaf(iter))
-            }
-            b"lh" => {
-                // Hash Leaf
-                let iter = HashLeafIter::new(
-                    &self.hive,
-                    count,
-                    count_field_offset,
-                    self.data_range.clone(),
-                )?;
-                Ok(SubkeyIter::HashLeaf(iter))
-            }
-            b"li" => {
-                // Index Leaf
-                let iter = IndexLeafIter::new(
-                    &self.hive,
-                    count,
-                    count_field_offset,
-                    self.data_range.clone(),
-                )?;
-                Ok(SubkeyIter::IndexLeaf(iter))
+                Ok(SubkeyIter::Leaf(iter))
             }
             b"ri" => {
                 // Index Root
@@ -164,35 +144,17 @@ where
         let count_field_offset = self.hive.offset_of_field(&header.count);
 
         match &header.signature {
-            b"lf" => {
-                // Fast Leaf
-                let iter = FastLeafIterMut::new(
+            b"lf" | b"lh" | b"li" => {
+                // Fast Leaf, Hash Leaf or Index Leaf
+                let leaf_type = LeafType::from_signature(&header.signature).unwrap();
+                let iter = LeafIterMut::new(
                     &mut self.hive,
                     count,
                     count_field_offset,
                     self.data_range.clone(),
+                    leaf_type,
                 )?;
-                Ok(SubkeyIterMut::FastLeaf(iter))
-            }
-            b"lh" => {
-                // Hash Leaf
-                let iter = HashLeafIterMut::new(
-                    &mut self.hive,
-                    count,
-                    count_field_offset,
-                    self.data_range.clone(),
-                )?;
-                Ok(SubkeyIterMut::HashLeaf(iter))
-            }
-            b"li" => {
-                // Index Leaf
-                let iter = IndexLeafIterMut::new(
-                    &mut self.hive,
-                    count,
-                    count_field_offset,
-                    self.data_range.clone(),
-                )?;
-                Ok(SubkeyIterMut::IndexLeaf(iter))
+                Ok(SubkeyIterMut::Leaf(iter))
             }
             b"ri" => {
                 // Index Root
@@ -211,11 +173,10 @@ where
 
 /// Iterator for a list of subkeys (common handling)
 /// Signature: lf | lh | li | ri
+#[derive(Clone)]
 pub enum SubkeyIter<'a, B: ByteSlice> {
-    FastLeaf(FastLeafIter<'a, B>),
-    HashLeaf(HashLeafIter<'a, B>),
-    IndexLeaf(IndexLeafIter<'a, B>),
     IndexRoot(IndexRootIter<'a, B>),
+    Leaf(LeafIter<'a, B>),
 }
 
 impl<'a, B> Iterator for SubkeyIter<'a, B>
@@ -226,19 +187,8 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::FastLeaf(iter) => iter.next(),
-            Self::HashLeaf(iter) => iter.next(),
-            Self::IndexLeaf(iter) => iter.next(),
             Self::IndexRoot(iter) => iter.next(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            Self::FastLeaf(iter) => iter.size_hint(),
-            Self::HashLeaf(iter) => iter.size_hint(),
-            Self::IndexLeaf(iter) => iter.size_hint(),
-            Self::IndexRoot(iter) => iter.size_hint(),
+            Self::Leaf(iter) => iter.next(),
         }
     }
 }
@@ -247,11 +197,10 @@ impl<'a, B> FusedIterator for SubkeyIter<'a, B> where B: ByteSlice {}
 
 /// Iterator for a list of mutable subkeys (common handling)
 /// Signature: lf | lh | li | ri
+#[derive(Clone)]
 pub(crate) enum SubkeyIterMut<'a, B: ByteSliceMut> {
-    FastLeaf(FastLeafIterMut<'a, B>),
-    HashLeaf(HashLeafIterMut<'a, B>),
-    IndexLeaf(IndexLeafIterMut<'a, B>),
     IndexRoot(IndexRootIterMut<'a, B>),
+    Leaf(LeafIterMut<'a, B>),
 }
 
 impl<'a, B> SubkeyIterMut<'a, B>
@@ -260,10 +209,8 @@ where
 {
     pub fn next(&mut self) -> Option<Result<KeyNode<&mut Hive<B>, B>>> {
         match self {
-            Self::FastLeaf(iter) => iter.next(),
-            Self::HashLeaf(iter) => iter.next(),
-            Self::IndexLeaf(iter) => iter.next(),
             Self::IndexRoot(iter) => iter.next(),
+            Self::Leaf(iter) => iter.next(),
         }
     }
 }

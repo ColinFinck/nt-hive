@@ -6,11 +6,9 @@
 //!
 
 use crate::error::{NtHiveError, Result};
-use crate::fast_leaf::FastLeafElement;
-use crate::hash_leaf::HashLeafElement;
 use crate::hive::Hive;
-use crate::index_leaf::IndexLeafElement;
 use crate::key_node::KeyNode;
+use crate::leaf::{key_node_offset_from_leaf_element_offset, LeafElementOffsetIter, LeafType};
 use crate::subkeys_list::SubkeysList;
 use ::byteorder::LittleEndian;
 use core::iter::FusedIterator;
@@ -58,10 +56,11 @@ impl IndexRootElement {
 }
 
 /// Iterator over Index Root Elements.
+#[derive(Clone)]
 pub struct IndexRootIter<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
     elements_range: Range<usize>,
-    inner_info: Option<IndexRootIterInnerInfo>,
+    inner_iter: Option<LeafElementOffsetIter>,
 }
 
 impl<'a, B> IndexRootIter<'a, B>
@@ -80,7 +79,7 @@ where
         Ok(Self {
             hive,
             elements_range,
-            inner_info: None,
+            inner_iter: None,
         })
     }
 }
@@ -93,8 +92,10 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(inner_info) = self.inner_info.as_mut() {
-                if let Some(key_node_offset) = inner_info.next_key_node_offset(&self.hive) {
+            if let Some(inner_iter) = self.inner_iter.as_mut() {
+                if let Some(leaf_element_offset) = inner_iter.next() {
+                    let key_node_offset =
+                        key_node_offset_from_leaf_element_offset(&self.hive, leaf_element_offset);
                     let cell_range =
                         iter_try!(self.hive.cell_range_from_data_offset(key_node_offset));
                     let key_node = iter_try!(KeyNode::new(self.hive, cell_range));
@@ -112,81 +113,28 @@ where
             let subkeys_list_offset = element.subkeys_list_offset.get();
             let cell_range = iter_try!(self.hive.cell_range_from_data_offset(subkeys_list_offset));
             let subkeys_list =
-                iter_try!(SubkeysList::new_without_index_root(self.hive, cell_range));
+                iter_try!(SubkeysList::new_without_index_root(&*self.hive, cell_range));
 
             let header = subkeys_list.header();
-            let data_range = subkeys_list.data_range.clone();
-            let signature = header.signature;
-            let count = header.count.get();
-            let count_field_offset = self.hive.offset_of_field(&header.count);
-
-            let elements_range = match &signature {
-                b"lf" => {
-                    // Fast Leaf
-                    iter_try!(FastLeafElement::elements_range(
-                        count,
-                        count_field_offset,
-                        data_range
-                    ))
-                }
-                b"lh" => {
-                    // Hash Leaf
-                    iter_try!(HashLeafElement::elements_range(
-                        count,
-                        count_field_offset,
-                        data_range
-                    ))
-                }
-                b"li" => {
-                    // Index Leaf
-                    iter_try!(IndexLeafElement::elements_range(
-                        count,
-                        count_field_offset,
-                        data_range
-                    ))
-                }
-                _ => unreachable!(),
-            };
-
-            self.inner_info = Some(IndexRootIterInnerInfo {
-                signature,
-                elements_range,
-            });
+            let leaf_type = LeafType::from_signature(&header.signature).unwrap();
+            let inner_iter = iter_try!(LeafElementOffsetIter::new(
+                header.count.get(),
+                self.hive.offset_of_field(&header.count),
+                subkeys_list.data_range,
+                leaf_type
+            ));
+            self.inner_iter = Some(inner_iter);
         }
     }
 }
 
 impl<'a, B> FusedIterator for IndexRootIter<'a, B> where B: ByteSlice {}
 
-/// Inner "iterator" for Index Root to iterate over the linked Fast Leafs/Hash Leafs/Index Leafs.
-///
-/// We only use element indexes here and don't encapsulate any of the iterator structs (`FastLeafIter`/`HashLeafIter`/...)
-/// This wouldn't work for `IndexRootIterMut`, because iterator structs contain a reference to `Hive`
-/// and `IndexRootIterMut` already contains a mutable reference to `Hive`.
-struct IndexRootIterInnerInfo {
-    signature: [u8; 2],
-    elements_range: Range<usize>,
-}
-
-impl IndexRootIterInnerInfo {
-    fn next_key_node_offset<B>(&mut self, hive: &Hive<B>) -> Option<u32>
-    where
-        B: ByteSlice,
-    {
-        match &self.signature {
-            b"lf" => FastLeafElement::next_key_node_offset(hive, &mut self.elements_range),
-            b"lh" => HashLeafElement::next_key_node_offset(hive, &mut self.elements_range),
-            b"li" => IndexLeafElement::next_key_node_offset(hive, &mut self.elements_range),
-            _ => unreachable!(),
-        }
-    }
-}
-
 /// Iterator over mutable Index Root Elements.
 pub(crate) struct IndexRootIterMut<'a, B: ByteSliceMut> {
     hive: &'a mut Hive<B>,
     elements_range: Range<usize>,
-    inner_info: Option<IndexRootIterInnerInfo>,
+    inner_iter: Option<LeafElementOffsetIter>,
 }
 
 impl<'a, B> IndexRootIterMut<'a, B>
@@ -205,14 +153,16 @@ where
         Ok(Self {
             hive,
             elements_range,
-            inner_info: None,
+            inner_iter: None,
         })
     }
 
     pub(crate) fn next<'e>(&'e mut self) -> Option<Result<KeyNode<&'e mut Hive<B>, B>>> {
         loop {
-            if let Some(inner_info) = self.inner_info.as_mut() {
-                if let Some(key_node_offset) = inner_info.next_key_node_offset(&self.hive) {
+            if let Some(inner_iter) = self.inner_iter.as_mut() {
+                if let Some(leaf_element_offset) = inner_iter.next() {
+                    let key_node_offset =
+                        key_node_offset_from_leaf_element_offset(&self.hive, leaf_element_offset);
                     let cell_range =
                         iter_try!(self.hive.cell_range_from_data_offset(key_node_offset));
                     let key_node = iter_try!(KeyNode::new(&mut *self.hive, cell_range));
@@ -233,43 +183,14 @@ where
                 iter_try!(SubkeysList::new_without_index_root(&*self.hive, cell_range));
 
             let header = subkeys_list.header();
-            let data_range = subkeys_list.data_range.clone();
-            let signature = header.signature;
-            let count = header.count.get();
-            let count_field_offset = self.hive.offset_of_field(&header.count);
-
-            let elements_range = match &signature {
-                b"lf" => {
-                    // Fast Leaf
-                    iter_try!(FastLeafElement::elements_range(
-                        count,
-                        count_field_offset,
-                        data_range
-                    ))
-                }
-                b"lh" => {
-                    // Hash Leaf
-                    iter_try!(HashLeafElement::elements_range(
-                        count,
-                        count_field_offset,
-                        data_range
-                    ))
-                }
-                b"li" => {
-                    // Index Leaf
-                    iter_try!(IndexLeafElement::elements_range(
-                        count,
-                        count_field_offset,
-                        data_range
-                    ))
-                }
-                _ => unreachable!(),
-            };
-
-            self.inner_info = Some(IndexRootIterInnerInfo {
-                signature,
-                elements_range,
-            });
+            let leaf_type = LeafType::from_signature(&header.signature).unwrap();
+            let inner_iter = iter_try!(LeafElementOffsetIter::new(
+                header.count.get(),
+                self.hive.offset_of_field(&header.count),
+                subkeys_list.data_range,
+                leaf_type
+            ));
+            self.inner_iter = Some(inner_iter);
         }
     }
 }
