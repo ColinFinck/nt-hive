@@ -1,4 +1,4 @@
-// Copyright 2019-2020 Colin Finck <colin@reactos.org>
+// Copyright 2019-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 //!
@@ -6,6 +6,7 @@
 //!
 
 use crate::error::{NtHiveError, Result};
+use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
 use crate::key_node::KeyNode;
 use crate::leaf::{key_node_offset_from_leaf_element_offset, LeafElementOffsetIter, LeafType};
@@ -29,26 +30,17 @@ impl IndexRootElement {
         count_field_offset: usize,
         data_range: Range<usize>,
     ) -> Result<Range<usize>> {
-        let count = count as usize;
-        let elements_range = data_range.start..data_range.start + count * mem::size_of::<Self>();
+        let bytes_count = count as usize * mem::size_of::<Self>();
 
-        if elements_range.end > data_range.end {
-            return Err(NtHiveError::InvalidSizeField {
-                offset: count_field_offset,
-                expected: elements_range.len(),
-                actual: data_range.len(),
-            });
-        }
-
-        Ok(elements_range)
+        bytes_subrange(&data_range, bytes_count).ok_or_else(|| NtHiveError::InvalidSizeField {
+            offset: count_field_offset,
+            expected: bytes_count,
+            actual: data_range.len(),
+        })
     }
 
     fn next_element_range(elements_range: &mut Range<usize>) -> Option<Range<usize>> {
-        let element_range = elements_range.start..elements_range.start + mem::size_of::<Self>();
-        if element_range.end > elements_range.end {
-            return None;
-        }
-
+        let element_range = bytes_subrange(elements_range, mem::size_of::<Self>())?;
         elements_range.start += mem::size_of::<Self>();
 
         Some(element_range)

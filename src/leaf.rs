@@ -1,7 +1,8 @@
-// Copyright 2020 Colin Finck <colin@reactos.org>
+// Copyright 2020-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
+use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
 use crate::key_node::KeyNode;
 use ::byteorder::LittleEndian;
@@ -89,16 +90,15 @@ impl LeafElementOffsetIter {
         data_range: Range<usize>,
         leaf_type: LeafType,
     ) -> Result<Self> {
-        let count = count as usize;
-        let elements_range = data_range.start..data_range.start + count * leaf_type.element_size();
+        let bytes_count = count as usize * leaf_type.element_size();
 
-        if elements_range.end > data_range.end {
-            return Err(NtHiveError::InvalidSizeField {
+        let elements_range = bytes_subrange(&data_range, bytes_count).ok_or_else(|| {
+            NtHiveError::InvalidSizeField {
                 offset: count_field_offset,
-                expected: elements_range.len(),
+                expected: bytes_count,
                 actual: data_range.len(),
-            });
-        }
+            }
+        })?;
 
         Ok(Self {
             elements_range,
@@ -112,17 +112,30 @@ impl Iterator for LeafElementOffsetIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         let element_size = self.leaf_type.element_size();
-        let element_range = self.elements_range.start..self.elements_range.start + element_size;
-        if element_range.end > self.elements_range.end {
-            return None;
-        }
-
+        let element_range = bytes_subrange(&self.elements_range, element_size)?;
         self.elements_range.start += element_size;
+
         Some(element_range.start)
     }
 
+    fn count(self) -> usize {
+        let (size, _) = self.size_hint();
+        size
+    }
+
+    fn last(mut self) -> Option<Self::Item> {
+        let (size, _) = self.size_hint();
+        if size == 0 {
+            return None;
+        }
+
+        self.nth(size - 1)
+    }
+
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.elements_range.start += n * self.leaf_type.element_size();
+        // `n` is arbitrary and usize, so we may hit boundaries here. Check that!
+        let bytes_to_skip = n.checked_mul(self.leaf_type.element_size())?;
+        self.elements_range.start = self.elements_range.start.checked_add(bytes_to_skip)?;
         self.next()
     }
 
@@ -192,8 +205,27 @@ where
         Some(Ok(key_node))
     }
 
+    fn count(self) -> usize {
+        self.inner_iter.count()
+    }
+
+    fn last(mut self) -> Option<Self::Item> {
+        let (size, _) = self.size_hint();
+        if size == 0 {
+            return None;
+        }
+
+        self.nth(size - 1)
+    }
+
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.inner_iter.elements_range.start += n * self.inner_iter.leaf_type.element_size();
+        // `n` is arbitrary and usize, so we may hit boundaries here. Check that!
+        let bytes_to_skip = n.checked_mul(self.inner_iter.leaf_type.element_size())?;
+        self.inner_iter.elements_range.start = self
+            .inner_iter
+            .elements_range
+            .start
+            .checked_add(bytes_to_skip)?;
         self.next()
     }
 

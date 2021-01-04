@@ -1,7 +1,8 @@
-// Copyright 2019-2020 Colin Finck <colin@reactos.org>
+// Copyright 2019-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
+use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
 use crate::key_values_list::KeyValueIter;
 use crate::string::NtHiveString;
@@ -78,15 +79,12 @@ where
     B: ByteSlice,
 {
     pub(crate) fn new(hive: H, cell_range: Range<usize>) -> Result<Self> {
-        let header_range = cell_range.start..cell_range.start + mem::size_of::<KeyNodeHeader>();
-        if header_range.end > cell_range.end {
-            return Err(NtHiveError::InvalidHeaderSize {
+        let header_range = bytes_subrange(&cell_range, mem::size_of::<KeyNodeHeader>())
+            .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: hive.offset_of_data_offset(cell_range.start),
                 expected: mem::size_of::<KeyNodeHeader>(),
                 actual: cell_range.len(),
-            });
-        }
-
+            })?;
         let data_range = header_range.end..cell_range.end;
 
         let key_node = Self {
@@ -108,15 +106,14 @@ where
         let flags = KeyNodeFlags::from_bits_truncate(header.flags.get());
         let key_name_length = header.key_name_length.get() as usize;
 
-        let key_name_range = self.data_range.start..self.data_range.start + key_name_length;
-        if key_name_range.end > self.data_range.end {
-            return Err(NtHiveError::InvalidSizeField {
-                offset: self.hive.offset_of_field(&header.key_name_length),
-                expected: key_name_length as usize,
-                actual: self.data_range.len(),
-            });
-        }
-
+        let key_name_range =
+            bytes_subrange(&self.data_range, key_name_length).ok_or_else(|| {
+                NtHiveError::InvalidSizeField {
+                    offset: self.hive.offset_of_field(&header.key_name_length),
+                    expected: key_name_length as usize,
+                    actual: self.data_range.len(),
+                }
+            })?;
         let key_name_bytes = &self.hive.data[key_name_range];
 
         if flags.contains(KeyNodeFlags::KEY_COMP_NAME) {

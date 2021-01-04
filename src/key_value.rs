@@ -1,8 +1,9 @@
-// Copyright 2020 Colin Finck <colin@reactos.org>
+// Copyright 2020-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::big_data::{BigDataIter, BIG_DATA_SEGMENT_SIZE};
 use crate::error::{NtHiveError, Result};
+use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
 use crate::string::NtHiveString;
 use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
@@ -88,15 +89,12 @@ where
     B: ByteSlice,
 {
     pub(crate) fn new(hive: H, cell_range: Range<usize>) -> Result<Self> {
-        let header_range = cell_range.start..cell_range.start + mem::size_of::<KeyValueHeader>();
-        if header_range.end > cell_range.end {
-            return Err(NtHiveError::InvalidHeaderSize {
+        let header_range = bytes_subrange(&cell_range, mem::size_of::<KeyValueHeader>())
+            .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: hive.offset_of_data_offset(cell_range.start),
                 expected: mem::size_of::<KeyValueHeader>(),
                 actual: cell_range.len(),
-            });
-        }
-
+            })?;
         let data_range = header_range.end..cell_range.end;
 
         let key_value = Self {
@@ -376,15 +374,13 @@ where
         let flags = KeyValueFlags::from_bits_truncate(header.flags.get());
         let name_length = header.name_length.get() as usize;
 
-        let name_range = self.data_range.start..self.data_range.start + name_length;
-        if name_range.end > self.data_range.end {
-            return Err(NtHiveError::InvalidSizeField {
+        let name_range = bytes_subrange(&self.data_range, name_length).ok_or_else(|| {
+            NtHiveError::InvalidSizeField {
                 offset: self.hive.offset_of_field(&header.name_length),
                 expected: name_length as usize,
                 actual: self.data_range.len(),
-            });
-        }
-
+            }
+        })?;
         let name_bytes = &self.hive.data[name_range];
 
         if flags.contains(KeyValueFlags::VALUE_COMP_NAME) {

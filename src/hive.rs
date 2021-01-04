@@ -1,7 +1,8 @@
-// Copyright 2019-2020 Colin Finck <colin@reactos.org>
+// Copyright 2019-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
+use crate::helpers::bytes_subrange;
 use crate::key_node::KeyNode;
 use ::byteorder::LittleEndian;
 use core::convert::TryInto;
@@ -107,18 +108,17 @@ where
         let data_offset = data_offset as usize;
 
         // Get the cell header.
-        let remaining_length = self.data.len().saturating_sub(data_offset);
-        let cell_header_end = data_offset + mem::size_of::<CellHeader>();
-        let bytes = self.data.get(data_offset..cell_header_end).ok_or_else(|| {
-            NtHiveError::InvalidHeaderSize {
+        let remaining_range = data_offset..self.data.len();
+        let header_range = bytes_subrange(&remaining_range, mem::size_of::<CellHeader>())
+            .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: self.offset_of_data_offset(data_offset),
                 expected: mem::size_of::<CellHeader>(),
-                actual: remaining_length,
-            }
-        })?;
+                actual: remaining_range.len(),
+            })?;
+        let cell_data_offset = header_range.end;
 
         // After the check above, the following operation must succeed, so we can just `unwrap`.
-        let header = LayoutVerified::<&[u8], CellHeader>::new(bytes).unwrap();
+        let header = LayoutVerified::<&[u8], CellHeader>::new(&self.data[header_range]).unwrap();
         let cell_size = header.size.get();
 
         // A cell with size > 0 is unallocated and shouldn't be processed any further by us.
@@ -140,16 +140,15 @@ where
             });
         }
 
-        // Does the size go beyond our hive data?
-        let remaining_length = self.data.len().saturating_sub(cell_header_end);
-        let cell_data_range = cell_header_end..cell_header_end + cell_size;
-        if cell_data_range.end > self.data.len() {
-            return Err(NtHiveError::InvalidSizeField {
+        // Get the actual data range and verify that it's inside our hive data.
+        let remaining_range = cell_data_offset..self.data.len();
+        let cell_data_range = bytes_subrange(&remaining_range, cell_size).ok_or_else(|| {
+            NtHiveError::InvalidSizeField {
                 offset: self.offset_of_field(&header.size),
-                expected: mem::size_of::<CellHeader>() + cell_size,
-                actual: remaining_length,
-            });
-        }
+                expected: cell_size,
+                actual: remaining_range.len(),
+            }
+        })?;
 
         Ok(cell_data_range)
     }

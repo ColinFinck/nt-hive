@@ -1,7 +1,8 @@
-// Copyright 2020 Colin Finck <colin@reactos.org>
+// Copyright 2020-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
+use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
 use crate::index_root::{IndexRootIter, IndexRootIterMut};
 use crate::key_node::KeyNode;
@@ -44,15 +45,12 @@ where
     }
 
     fn new_internal(hive: H, cell_range: Range<usize>, index_root_supported: bool) -> Result<Self> {
-        let header_range = cell_range.start..cell_range.start + mem::size_of::<SubkeysListHeader>();
-        if header_range.end > cell_range.end {
-            return Err(NtHiveError::InvalidHeaderSize {
+        let header_range = bytes_subrange(&cell_range, mem::size_of::<SubkeysListHeader>())
+            .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: hive.offset_of_data_offset(cell_range.start),
                 expected: mem::size_of::<SubkeysListHeader>(),
                 actual: cell_range.len(),
-            });
-        }
-
+            })?;
         let data_range = header_range.end..cell_range.end;
 
         let subkeys_list = Self {
@@ -191,13 +189,40 @@ where
             Self::Leaf(iter) => iter.next(),
         }
     }
+
+    fn count(self) -> usize {
+        match self {
+            Self::IndexRoot(iter) => iter.count(),
+            Self::Leaf(iter) => iter.count(),
+        }
+    }
+
+    fn last(self) -> Option<Self::Item> {
+        match self {
+            Self::IndexRoot(iter) => iter.last(),
+            Self::Leaf(iter) => iter.last(),
+        }
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        match self {
+            Self::IndexRoot(iter) => iter.nth(n),
+            Self::Leaf(iter) => iter.nth(n),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::IndexRoot(iter) => iter.size_hint(),
+            Self::Leaf(iter) => iter.size_hint(),
+        }
+    }
 }
 
 impl<'a, B> FusedIterator for SubkeyIter<'a, B> where B: ByteSlice {}
 
 /// Iterator for a list of mutable subkeys (common handling)
 /// Signature: lf | lh | li | ri
-#[derive(Clone)]
 pub(crate) enum SubkeyIterMut<'a, B: ByteSliceMut> {
     IndexRoot(IndexRootIterMut<'a, B>),
     Leaf(LeafIterMut<'a, B>),

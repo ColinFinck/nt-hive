@@ -1,7 +1,8 @@
-// Copyright 2020 Colin Finck <colin@reactos.org>
+// Copyright 2020-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
+use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
 use crate::key_value::KeyValue;
 use ::byteorder::LittleEndian;
@@ -24,18 +25,13 @@ impl KeyValuesListElement {
         count_field_offset: usize,
         cell_range: Range<usize>,
     ) -> Result<Range<usize>> {
-        let count = count as usize;
-        let elements_range = cell_range.start..cell_range.start + count * mem::size_of::<Self>();
+        let bytes_count = count as usize * mem::size_of::<Self>();
 
-        if elements_range.end > cell_range.end {
-            return Err(NtHiveError::InvalidSizeField {
-                offset: count_field_offset,
-                expected: elements_range.len(),
-                actual: cell_range.len(),
-            });
-        }
-
-        Ok(elements_range)
+        bytes_subrange(&cell_range, bytes_count).ok_or_else(|| NtHiveError::InvalidSizeField {
+            offset: count_field_offset,
+            expected: bytes_count,
+            actual: cell_range.len(),
+        })
     }
 
     pub(crate) fn next_key_value_offset<B>(
@@ -45,11 +41,7 @@ impl KeyValuesListElement {
     where
         B: ByteSlice,
     {
-        let element_range = elements_range.start..elements_range.start + mem::size_of::<Self>();
-        if element_range.end > elements_range.end {
-            return None;
-        }
-
+        let element_range = bytes_subrange(&elements_range, mem::size_of::<Self>())?;
         elements_range.start += mem::size_of::<Self>();
 
         let element = LayoutVerified::<&[u8], Self>::new(&hive.data[element_range]).unwrap();
@@ -58,6 +50,7 @@ impl KeyValuesListElement {
 }
 
 /// Iterator over Key Values.
+#[derive(Clone)]
 pub struct KeyValueIter<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
     elements_range: Range<usize>,
@@ -97,6 +90,27 @@ where
 
         self.elements_range.start += mem::size_of::<KeyValuesListElement>();
         Some(Ok(key_value))
+    }
+
+    fn count(self) -> usize {
+        let (size, _) = self.size_hint();
+        size
+    }
+
+    fn last(mut self) -> Option<Self::Item> {
+        let (size, _) = self.size_hint();
+        if size == 0 {
+            return None;
+        }
+
+        self.nth(size - 1)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        // `n` is arbitrary and usize, so we may hit boundaries here. Check that!
+        let bytes_to_skip = n.checked_mul(mem::size_of::<KeyValuesListElement>())?;
+        self.elements_range.start = self.elements_range.start.checked_add(bytes_to_skip)?;
+        self.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

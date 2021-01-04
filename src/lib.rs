@@ -1,10 +1,10 @@
-// Copyright 2019-2020 Colin Finck <colin@reactos.org>
+// Copyright 2019-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[macro_use]
-mod macros;
+mod helpers;
 
 mod big_data;
 mod error;

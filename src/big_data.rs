@@ -1,7 +1,8 @@
-// Copyright 2020 Colin Finck <colin@reactos.org>
+// Copyright 2020-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
+use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
 use ::byteorder::LittleEndian;
 use core::cmp;
@@ -40,29 +41,20 @@ impl BigDataListElement {
         count_field_offset: usize,
         cell_range: Range<usize>,
     ) -> Result<Range<usize>> {
-        let count = count as usize;
-        let elements_range = cell_range.start..cell_range.start + count * mem::size_of::<Self>();
+        let bytes_count = count as usize * mem::size_of::<Self>();
 
-        if elements_range.end > cell_range.end {
-            return Err(NtHiveError::InvalidSizeField {
-                offset: count_field_offset,
-                expected: elements_range.len(),
-                actual: cell_range.len(),
-            });
-        }
-
-        Ok(elements_range)
+        bytes_subrange(&cell_range, bytes_count).ok_or_else(|| NtHiveError::InvalidSizeField {
+            offset: count_field_offset,
+            expected: bytes_count,
+            actual: cell_range.len(),
+        })
     }
 
     fn next_segment_offset<B>(hive: &Hive<B>, elements_range: &mut Range<usize>) -> Option<u32>
     where
         B: ByteSlice,
     {
-        let element_range = elements_range.start..elements_range.start + mem::size_of::<Self>();
-        if element_range.end > elements_range.end {
-            return None;
-        }
-
+        let element_range = bytes_subrange(elements_range, mem::size_of::<Self>())?;
         elements_range.start += mem::size_of::<Self>();
 
         let element = LayoutVerified::<&[u8], Self>::new(&hive.data[element_range]).unwrap();
@@ -71,6 +63,7 @@ impl BigDataListElement {
 }
 
 /// Iterator over Big Data Segments.
+#[derive(Clone)]
 pub struct BigDataIter<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
     elements_range: Range<usize>,
@@ -91,15 +84,12 @@ where
 
         // The passed `header_cell_range` contains just the `BigDataHeader`.
         // Verify this header.
-        let header_range =
-            header_cell_range.start..header_cell_range.start + mem::size_of::<BigDataHeader>();
-        if header_range.end > header_cell_range.end {
-            return Err(NtHiveError::InvalidHeaderSize {
+        let header_range = bytes_subrange(&header_cell_range, mem::size_of::<BigDataHeader>())
+            .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: hive.offset_of_data_offset(header_cell_range.start),
                 expected: mem::size_of::<BigDataHeader>(),
                 actual: header_cell_range.len(),
-            });
-        }
+            })?;
 
         let header = LayoutVerified::new(&hive.data[header_range]).unwrap();
         Self::validate_signature(&hive, &header)?;
@@ -163,22 +153,58 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // Every segment contains BIG_DATA_SEGMENT_SIZE bytes of data except for the last one.
         let bytes_to_return = cmp::min(self.bytes_left, BIG_DATA_SEGMENT_SIZE);
+        if bytes_to_return == 0 {
+            return None;
+        }
 
+        // Get the next segment offset (advancing our `elements_range` cursor) and
+        // adjust `bytes_left` accordingly.
         let segment_offset =
             BigDataListElement::next_segment_offset(&self.hive, &mut self.elements_range)?;
         self.bytes_left -= bytes_to_return;
 
+        // Get the cell belonging to that offset and check if it contains as many bytes
+        // as we expect.
         let cell_range = iter_try!(self.hive.cell_range_from_data_offset(segment_offset));
-        if cell_range.len() < bytes_to_return {
-            return Some(Err(NtHiveError::InvalidDataSize {
+        let data_range = iter_try!(bytes_subrange(&cell_range, bytes_to_return).ok_or_else(|| {
+            NtHiveError::InvalidDataSize {
                 offset: self.hive.offset_of_data_offset(cell_range.start),
                 expected: bytes_to_return,
                 actual: cell_range.len(),
-            }));
+            }
+        }));
+
+        // Return a byte slice containing this segment's data.
+        Some(Ok(&self.hive.data[data_range]))
+    }
+
+    fn count(self) -> usize {
+        let (size, _) = self.size_hint();
+        size
+    }
+
+    fn last(mut self) -> Option<Self::Item> {
+        let (size, _) = self.size_hint();
+        if size == 0 {
+            return None;
         }
 
-        let data_range = cell_range.start..cell_range.start + bytes_to_return;
-        Some(Ok(&self.hive.data[data_range]))
+        self.nth(size - 1)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        // `n` is arbitrary and usize, so we may hit boundaries here. Check that!
+        let bytes_to_skip = n.checked_mul(BIG_DATA_SEGMENT_SIZE)?;
+        self.bytes_left = self.bytes_left.saturating_sub(bytes_to_skip);
+        if self.bytes_left == 0 {
+            return None;
+        }
+
+        // This calculation is safe considering that we have checked the
+        // multiplication and subtraction above.
+        self.elements_range.start += n * mem::size_of::<BigDataListElement>();
+
+        self.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
