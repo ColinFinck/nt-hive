@@ -117,7 +117,7 @@ where
         let key_name_bytes = &self.hive.data[key_name_range];
 
         if flags.contains(KeyNodeFlags::KEY_COMP_NAME) {
-            Ok(NtHiveString::AsciiExtended(key_name_bytes))
+            Ok(NtHiveString::Ascii(key_name_bytes))
         } else {
             Ok(NtHiveString::Utf16LE(key_name_bytes))
         }
