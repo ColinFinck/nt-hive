@@ -38,9 +38,20 @@ where
     B: ByteSlice,
 {
     #[cfg(feature = "alloc")]
-    pub fn to_vec(&self) -> Result<Vec<u8>> {
-        // Oder doch besser TryInto<Vec<u8>>??
-        panic!("TODO")
+    pub fn into_vec(self) -> Result<Vec<u8>> {
+        match self {
+            KeyValueData::Small(data) => Ok(data.to_vec()),
+            KeyValueData::Big(iter) => {
+                let mut data = Vec::new();
+
+                for slice_data in iter {
+                    let slice_data = slice_data?;
+                    data.extend_from_slice(slice_data);
+                }
+
+                Ok(data)
+            }
+        }
     }
 }
 
