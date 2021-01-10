@@ -57,8 +57,7 @@ where
             let key_node = key_node.map_err(|e| format!("Error enumerating key: {}", e))?;
             let key_name = key_node
                 .name()
-                .map_err(|e| format!("Error getting key name: {}", e))?
-                .to_string_lossy();
+                .map_err(|e| format!("Error getting key name: {}", e))?;
 
             for _i in 0..level {
                 print!("  ");
