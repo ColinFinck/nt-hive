@@ -5,7 +5,7 @@ use crate::big_data::{BigDataIter, BIG_DATA_SEGMENT_SIZE};
 use crate::error::{NtHiveError, Result};
 use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
-use crate::string::NtHiveString;
+use crate::string::NtHiveNameString;
 use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
 use bitflags::bitflags;
 use core::convert::TryInto;
@@ -380,7 +380,7 @@ where
             })
     }
 
-    pub fn name(&self) -> Result<NtHiveString> {
+    pub fn name(&self) -> Result<NtHiveNameString> {
         let header = self.header();
         let flags = KeyValueFlags::from_bits_truncate(header.flags.get());
         let name_length = header.name_length.get() as usize;
@@ -395,9 +395,9 @@ where
         let name_bytes = &self.hive.data[name_range];
 
         if flags.contains(KeyValueFlags::VALUE_COMP_NAME) {
-            Ok(NtHiveString::Ascii(name_bytes))
+            Ok(NtHiveNameString::Latin1(name_bytes))
         } else {
-            Ok(NtHiveString::Utf16LE(name_bytes))
+            Ok(NtHiveNameString::Utf16LE(name_bytes))
         }
     }
 

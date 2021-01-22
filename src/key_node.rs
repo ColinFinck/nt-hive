@@ -5,7 +5,7 @@ use crate::error::{NtHiveError, Result};
 use crate::helpers::bytes_subrange;
 use crate::hive::Hive;
 use crate::key_values_list::KeyValueIter;
-use crate::string::NtHiveString;
+use crate::string::NtHiveNameString;
 use crate::subkeys_list::SubkeysList;
 use ::byteorder::LittleEndian;
 use bitflags::bitflags;
@@ -101,7 +101,7 @@ where
         LayoutVerified::new(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
-    pub fn name(&self) -> Result<NtHiveString> {
+    pub fn name(&self) -> Result<NtHiveNameString> {
         let header = self.header();
         let flags = KeyNodeFlags::from_bits_truncate(header.flags.get());
         let key_name_length = header.key_name_length.get() as usize;
@@ -117,9 +117,9 @@ where
         let key_name_bytes = &self.hive.data[key_name_range];
 
         if flags.contains(KeyNodeFlags::KEY_COMP_NAME) {
-            Ok(NtHiveString::Ascii(key_name_bytes))
+            Ok(NtHiveNameString::Latin1(key_name_bytes))
         } else {
-            Ok(NtHiveString::Utf16LE(key_name_bytes))
+            Ok(NtHiveNameString::Utf16LE(key_name_bytes))
         }
     }
 
