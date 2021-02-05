@@ -1266,14 +1266,13 @@ impl<'a> NtHiveNameString<'a> {
     }
 
     #[inline]
-    fn eq_str(&self, other: &str) -> bool {
+    fn cmp_str(&self, other: &str) -> Ordering {
         let other_iter = other.encode_utf16();
 
-        let ordering = match self {
+        match self {
             Self::Latin1(_) => Self::cmp_iter(self.latin1_iter(), other_iter),
             Self::Utf16LE(_) => Self::cmp_iter(self.utf16le_iter(), other_iter),
-        };
-        ordering == Ordering::Equal
+        }
     }
 
     #[inline]
@@ -1395,17 +1394,31 @@ impl<'a> PartialEq for NtHiveNameString<'a> {
     }
 }
 
+impl<'a> PartialEq<str> for NtHiveNameString<'a> {
+    #[inline]
+    fn eq(&self, other: &str) -> bool {
+        self.cmp_str(other) == Ordering::Equal
+    }
+}
+
+impl<'a> PartialEq<NtHiveNameString<'a>> for str {
+    #[inline]
+    fn eq(&self, other: &NtHiveNameString<'a>) -> bool {
+        other.cmp_str(self) == Ordering::Equal
+    }
+}
+
 impl<'a> PartialEq<&str> for NtHiveNameString<'a> {
     #[inline]
     fn eq(&self, other: &&str) -> bool {
-        self.eq_str(other)
+        self.cmp_str(other) == Ordering::Equal
     }
 }
 
 impl<'a> PartialEq<NtHiveNameString<'a>> for &str {
     #[inline]
     fn eq(&self, other: &NtHiveNameString<'a>) -> bool {
-        other.eq_str(self)
+        other.cmp_str(self) == Ordering::Equal
     }
 }
 
@@ -1413,6 +1426,34 @@ impl<'a> PartialOrd for NtHiveNameString<'a> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl<'a> PartialOrd<str> for NtHiveNameString<'a> {
+    #[inline]
+    fn partial_cmp(&self, other: &str) -> Option<Ordering> {
+        Some(self.cmp_str(other))
+    }
+}
+
+impl<'a> PartialOrd<NtHiveNameString<'a>> for str {
+    #[inline]
+    fn partial_cmp(&self, other: &NtHiveNameString<'a>) -> Option<Ordering> {
+        Some(other.cmp_str(self))
+    }
+}
+
+impl<'a> PartialOrd<&str> for NtHiveNameString<'a> {
+    #[inline]
+    fn partial_cmp(&self, other: &&str) -> Option<Ordering> {
+        Some(self.cmp_str(other))
+    }
+}
+
+impl<'a> PartialOrd<NtHiveNameString<'a>> for &str {
+    #[inline]
+    fn partial_cmp(&self, other: &NtHiveNameString<'a>) -> Option<Ordering> {
+        Some(other.cmp_str(self))
     }
 }
 
