@@ -189,8 +189,7 @@ where
     pub fn root_key_node(&self) -> Result<KeyNode<&Self, B>> {
         let root_cell_offset = self.base_block.root_cell_offset.get();
         let cell_range = self.cell_range_from_data_offset(root_cell_offset)?;
-
-        KeyNode::new(self, cell_range)
+        KeyNode::from_cell_range(self, cell_range)
     }
 
     /// Performs all validations on this hive.
@@ -347,6 +346,10 @@ impl<B> Hive<B>
 where
     B: ByteSliceMut,
 {
+    /// Clear the `volatile_subkey_count` field of all key nodes recursively.
+    /// This prepares the hive for being passed to an NT kernel during boot.
+    ///
+    /// See https://github.com/reactos/reactos/pull/1883 for more information.
     pub fn clear_volatile_subkeys(&mut self) -> Result<()> {
         let mut root_key_node = self.root_key_node_mut()?;
         root_key_node.clear_volatile_subkeys()
@@ -355,7 +358,6 @@ where
     pub(crate) fn root_key_node_mut(&mut self) -> Result<KeyNode<&mut Self, B>> {
         let root_cell_offset = self.base_block.root_cell_offset.get();
         let cell_range = self.cell_range_from_data_offset(root_cell_offset)?;
-
-        KeyNode::new(self, cell_range)
+        KeyNode::from_cell_range(self, cell_range)
     }
 }

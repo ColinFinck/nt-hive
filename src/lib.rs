@@ -20,8 +20,11 @@ mod subkeys_list;
 pub use crate::big_data::*;
 pub use crate::error::*;
 pub use crate::hive::*;
+pub use crate::index_root::*;
 pub use crate::key_node::*;
 pub use crate::key_value::*;
+pub use crate::key_values_list::*;
+pub use crate::leaf::*;
 pub use crate::string::*;
 pub use crate::subkeys_list::*;
 
