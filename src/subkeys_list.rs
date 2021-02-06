@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
-use crate::helpers::bytes_subrange;
+use crate::helpers::byte_subrange;
 use crate::hive::Hive;
-use crate::index_root::{IndexRootIter, IndexRootIterMut};
+use crate::index_root::{IndexRootKeyNodes, IndexRootKeyNodesMut};
 use crate::key_node::KeyNode;
-use crate::leaf::{LeafIter, LeafIterMut, LeafType};
+use crate::leaf::{LeafKeyNodes, LeafKeyNodesMut, LeafType};
 use ::byteorder::LittleEndian;
 use core::iter::FusedIterator;
 use core::mem;
 use core::ops::{Deref, DerefMut, Range};
 use zerocopy::*;
 
-/// On-Disk Structure of a Subkeys List Header.
+/// On-Disk Structure of a Subkeys List header.
 /// This is common for all subkey types (Fast Leaf, Hash Leaf, Index Leaf, Index Root).
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
@@ -22,14 +22,16 @@ pub(crate) struct SubkeysListHeader {
     pub(crate) count: U16<LittleEndian>,
 }
 
+/// Subkeys of a single [`KeyNode`].
+///
+/// A Subkeys List generalizes over all structures used to manage subkeys.
+/// These are: Fast Leaf (`lf`), Hash Leaf (`lh`), Index Leaf (`li`), Index Root (`ri`).
 pub struct SubkeysList<H: Deref<Target = Hive<B>>, B: ByteSlice> {
     hive: H,
     header_range: Range<usize>,
     pub(crate) data_range: Range<usize>,
 }
 
-/// A list of subkeys (common handling)
-/// Signature: lf | lh | li | ri
 impl<H, B> SubkeysList<H, B>
 where
     H: Deref<Target = Hive<B>>,
@@ -40,12 +42,12 @@ where
     }
 
     pub(crate) fn new_without_index_root(hive: H, cell_range: Range<usize>) -> Result<Self> {
-        // This function only exists to share validation code with `IndexRootInnerIter`.
+        // This function only exists to share validation code with `LeafItemRanges`.
         Self::new_internal(hive, cell_range, false)
     }
 
     fn new_internal(hive: H, cell_range: Range<usize>, index_root_supported: bool) -> Result<Self> {
-        let header_range = bytes_subrange(&cell_range, mem::size_of::<SubkeysListHeader>())
+        let header_range = byte_subrange(&cell_range, mem::size_of::<SubkeysListHeader>())
             .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: hive.offset_of_data_offset(cell_range.start),
                 expected: mem::size_of::<SubkeysListHeader>(),
@@ -67,7 +69,8 @@ where
         LayoutVerified::new(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
-    pub fn iter(&self) -> Result<SubkeyIter<B>> {
+    /// Returns an iterator over the subkeys of the associated [`KeyNode`].
+    pub fn iter(&self) -> Result<SubKeyNodes<B>> {
         let header = self.header();
         let count = header.count.get();
         let count_field_offset = self.hive.offset_of_field(&header.count);
@@ -76,24 +79,24 @@ where
             b"lf" | b"lh" | b"li" => {
                 // Fast Leaf, Hash Leaf or Index Leaf
                 let leaf_type = LeafType::from_signature(&header.signature).unwrap();
-                let iter = LeafIter::new(
+                let iter = LeafKeyNodes::new(
                     &self.hive,
                     count,
                     count_field_offset,
                     self.data_range.clone(),
                     leaf_type,
                 )?;
-                Ok(SubkeyIter::Leaf(iter))
+                Ok(SubKeyNodes::Leaf(iter))
             }
             b"ri" => {
                 // Index Root
-                let iter = IndexRootIter::new(
+                let iter = IndexRootKeyNodes::new(
                     &self.hive,
                     count,
                     count_field_offset,
                     self.data_range.clone(),
                 )?;
-                Ok(SubkeyIter::IndexRoot(iter))
+                Ok(SubKeyNodes::IndexRoot(iter))
             }
             _ => unreachable!(),
         }
@@ -136,7 +139,8 @@ where
     H: DerefMut<Target = Hive<B>>,
     B: ByteSliceMut,
 {
-    pub(crate) fn iter_mut(&mut self) -> Result<SubkeyIterMut<B>> {
+    /// Returns an iterator over the subkeys of the associated [`KeyNode`] that allows modifications.
+    pub(crate) fn iter_mut(&mut self) -> Result<SubKeyNodesMut<B>> {
         let header = self.header();
         let count = header.count.get();
         let count_field_offset = self.hive.offset_of_field(&header.count);
@@ -145,39 +149,45 @@ where
             b"lf" | b"lh" | b"li" => {
                 // Fast Leaf, Hash Leaf or Index Leaf
                 let leaf_type = LeafType::from_signature(&header.signature).unwrap();
-                let iter = LeafIterMut::new(
+                let iter = LeafKeyNodesMut::new(
                     &mut self.hive,
                     count,
                     count_field_offset,
                     self.data_range.clone(),
                     leaf_type,
                 )?;
-                Ok(SubkeyIterMut::Leaf(iter))
+                Ok(SubKeyNodesMut::Leaf(iter))
             }
             b"ri" => {
                 // Index Root
-                let iter = IndexRootIterMut::new(
+                let iter = IndexRootKeyNodesMut::new(
                     &mut self.hive,
                     count,
                     count_field_offset,
                     self.data_range.clone(),
                 )?;
-                Ok(SubkeyIterMut::IndexRoot(iter))
+                Ok(SubKeyNodesMut::IndexRoot(iter))
             }
             _ => unreachable!(),
         }
     }
 }
 
-/// Iterator for a list of subkeys (common handling)
-/// Signature: lf | lh | li | ri
+/// Iterator over
+///   all subkeys of a [`KeyNode`],
+///   returning a constant [`KeyNode`] for each subkey.
+///
+/// This iterator combines [`IndexRootKeyNodes`] and [`LeafKeyNodes`].
+/// Refer to them for a more technical documentation.
+///
+/// On-Disk Signatures: `lf`, `lh`, `li`, `ri`
 #[derive(Clone)]
-pub enum SubkeyIter<'a, B: ByteSlice> {
-    IndexRoot(IndexRootIter<'a, B>),
-    Leaf(LeafIter<'a, B>),
+pub enum SubKeyNodes<'a, B: ByteSlice> {
+    IndexRoot(IndexRootKeyNodes<'a, B>),
+    Leaf(LeafKeyNodes<'a, B>),
 }
 
-impl<'a, B> Iterator for SubkeyIter<'a, B>
+impl<'a, B> Iterator for SubKeyNodes<'a, B>
 where
     B: ByteSlice,
 {
@@ -219,16 +229,22 @@ where
     }
 }
 
-impl<'a, B> FusedIterator for SubkeyIter<'a, B> where B: ByteSlice {}
+impl<'a, B> FusedIterator for SubKeyNodes<'a, B> where B: ByteSlice {}
 
-/// Iterator for a list of mutable subkeys (common handling)
-/// Signature: lf | lh | li | ri
-pub(crate) enum SubkeyIterMut<'a, B: ByteSliceMut> {
-    IndexRoot(IndexRootIterMut<'a, B>),
-    Leaf(LeafIterMut<'a, B>),
+/// Iterator over
+///   all subkeys of a [`KeyNode`],
+///   returning a mutable [`KeyNode`] for each subkey.
+///
+/// This iterator combines [`IndexRootKeyNodesMut`] and [`LeafKeyNodesMut`].
+/// Refer to them for a more technical documentation.
+///
+/// On-Disk Signatures: `lf`, `lh`, `li`, `ri`
+pub(crate) enum SubKeyNodesMut<'a, B: ByteSliceMut> {
+    IndexRoot(IndexRootKeyNodesMut<'a, B>),
+    Leaf(LeafKeyNodesMut<'a, B>),
 }
 
-impl<'a, B> SubkeyIterMut<'a, B>
+impl<'a, B> SubKeyNodesMut<'a, B>
 where
     B: ByteSliceMut,
 {

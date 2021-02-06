@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
-use crate::helpers::bytes_subrange;
+use crate::helpers::byte_subrange;
 use crate::key_node::KeyNode;
 use ::byteorder::LittleEndian;
 use core::convert::TryInto;
@@ -109,7 +109,7 @@ where
 
         // Get the cell header.
         let remaining_range = data_offset..self.data.len();
-        let header_range = bytes_subrange(&remaining_range, mem::size_of::<CellHeader>())
+        let header_range = byte_subrange(&remaining_range, mem::size_of::<CellHeader>())
             .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: self.offset_of_data_offset(data_offset),
                 expected: mem::size_of::<CellHeader>(),
@@ -142,7 +142,7 @@ where
 
         // Get the actual data range and verify that it's inside our hive data.
         let remaining_range = cell_data_offset..self.data.len();
-        let cell_data_range = bytes_subrange(&remaining_range, cell_size).ok_or_else(|| {
+        let cell_data_range = byte_subrange(&remaining_range, cell_size).ok_or_else(|| {
             NtHiveError::InvalidSizeField {
                 offset: self.offset_of_field(&header.size),
                 expected: cell_size,

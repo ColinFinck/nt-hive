@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
-use crate::helpers::bytes_subrange;
+use crate::helpers::byte_subrange;
 use crate::hive::Hive;
-use crate::index_root::IndexRootElementRangeIter;
-use crate::key_values_list::KeyValueIter;
-use crate::leaf::{LeafElementRange, LeafElementRangeIter};
+use crate::index_root::IndexRootItemRanges;
+use crate::key_values_list::KeyValues;
+use crate::leaf::{LeafItemRange, LeafItemRanges};
 use crate::string::NtHiveNameString;
-use crate::subkeys_list::{SubkeyIter, SubkeysList};
+use crate::subkeys_list::{SubKeyNodes, SubkeysList};
 use ::byteorder::LittleEndian;
 use bitflags::bitflags;
 use core::cmp::Ordering;
@@ -41,7 +41,7 @@ bitflags! {
     }
 }
 
-/// On-Disk Structure of a Key Node Header.
+/// On-Disk Structure of a Key Node header.
 #[allow(dead_code)]
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
@@ -68,42 +68,42 @@ struct KeyNodeHeader {
     class_name_length: U16<LittleEndian>,
 }
 
+/// Byte range of a single Key Node item.
 #[derive(Clone)]
-pub(crate) struct KeyNodeElementRange {
+pub(crate) struct KeyNodeItemRange {
     header_range: Range<usize>,
     data_range: Range<usize>,
 }
 
-impl KeyNodeElementRange {
+impl KeyNodeItemRange {
     pub fn from_cell_range<B>(hive: &Hive<B>, cell_range: Range<usize>) -> Result<Self>
     where
         B: ByteSlice,
     {
-        let header_range = bytes_subrange(&cell_range, mem::size_of::<KeyNodeHeader>())
-            .ok_or_else(|| NtHiveError::InvalidHeaderSize {
-                offset: hive.offset_of_data_offset(cell_range.start),
-                expected: mem::size_of::<KeyNodeHeader>(),
-                actual: cell_range.len(),
+        let header_range =
+            byte_subrange(&cell_range, mem::size_of::<KeyNodeHeader>()).ok_or_else(|| {
+                NtHiveError::InvalidHeaderSize {
+                    offset: hive.offset_of_data_offset(cell_range.start),
+                    expected: mem::size_of::<KeyNodeHeader>(),
+                    actual: cell_range.len(),
+                }
             })?;
         let data_range = header_range.end..cell_range.end;
 
-        let key_node_element_range = Self {
+        let key_node_item_range = Self {
             header_range,
             data_range,
         };
-        key_node_element_range.validate_signature(hive)?;
+        key_node_item_range.validate_signature(hive)?;
 
-        Ok(key_node_element_range)
+        Ok(key_node_item_range)
     }
 
-    pub fn from_leaf_element_range<B>(
-        hive: &Hive<B>,
-        leaf_element_range: LeafElementRange,
-    ) -> Result<Self>
+    pub fn from_leaf_item_range<B>(hive: &Hive<B>, leaf_item_range: LeafItemRange) -> Result<Self>
     where
         B: ByteSlice,
     {
-        let key_node_offset = leaf_element_range.key_node_offset(hive);
+        let key_node_offset = leaf_item_range.key_node_offset(hive);
         let cell_range = hive.cell_range_from_data_offset(key_node_offset)?;
         let key_node = Self::from_cell_range(hive, cell_range)?;
         Ok(key_node)
@@ -113,60 +113,56 @@ impl KeyNodeElementRange {
         &self,
         hive: &Hive<B>,
         name: &str,
-        index_root_element_range_iter: IndexRootElementRangeIter,
+        index_root_item_ranges: IndexRootItemRanges,
     ) -> Option<Result<Self>>
     where
         B: ByteSlice,
     {
         // The following textbook binary search algorithm requires signed math.
         // Fortunately, Index Roots have a u16 `count` field, hence we should be able to convert to i32.
-        assert!(index_root_element_range_iter.len() <= u16::MAX as usize);
+        assert!(index_root_item_ranges.len() <= u16::MAX as usize);
         let mut left = 0i32;
-        let mut right = index_root_element_range_iter.len() as i32 - 1;
+        let mut right = index_root_item_ranges.len() as i32 - 1;
 
         while left <= right {
-            // Select the middle Index Root element given the current boundaries and get an
-            // iterator over its Leaf elements.
+            // Select the middle Index Root item given the current boundaries and get an
+            // iterator over its Leaf items.
             let mid = (left + right) / 2;
 
-            let index_root_element_range = index_root_element_range_iter
-                .clone()
-                .nth(mid as usize)
-                .unwrap();
-            let leaf_element_range_iter = iter_try!(
-                LeafElementRangeIter::from_index_root_element_range(hive, index_root_element_range)
-            );
+            let index_root_item_range = index_root_item_ranges.clone().nth(mid as usize).unwrap();
+            let leaf_item_ranges = iter_try!(LeafItemRanges::from_index_root_item_range(
+                hive,
+                index_root_item_range
+            ));
 
-            // Check the name of the FIRST Key Node of the selected Index Root element.
-            let leaf_element_range = leaf_element_range_iter.clone().next().unwrap();
-            let key_node_element_range =
-                iter_try!(Self::from_leaf_element_range(hive, leaf_element_range));
-            let key_node_name = iter_try!(key_node_element_range.name(hive));
+            // Check the name of the FIRST Key Node of the selected Index Root item.
+            let leaf_item_range = leaf_item_ranges.clone().next().unwrap();
+            let key_node_item_range = iter_try!(Self::from_leaf_item_range(hive, leaf_item_range));
+            let key_node_name = iter_try!(key_node_item_range.name(hive));
 
             match key_node_name.partial_cmp(name).unwrap() {
-                Ordering::Equal => return Some(Ok(key_node_element_range)),
+                Ordering::Equal => return Some(Ok(key_node_item_range)),
                 Ordering::Less => (),
                 Ordering::Greater => {
-                    // The FIRST Key Node of the selected Index Root element has a name that comes
+                    // The FIRST Key Node of the selected Index Root item has a name that comes
                     // AFTER the name we are looking for.
-                    // Hence, the searched Key Node must be in an Index Root element BEFORE the selected one.
+                    // Hence, the searched Key Node must be in an Index Root item BEFORE the selected one.
                     right = mid - 1;
                     continue;
                 }
             }
 
-            // Check the name of the LAST Key Node of the selected Index Root element.
-            let leaf_element_range = leaf_element_range_iter.clone().last().unwrap();
-            let key_node_element_range =
-                iter_try!(Self::from_leaf_element_range(hive, leaf_element_range));
-            let key_node_name = iter_try!(key_node_element_range.name(hive));
+            // Check the name of the LAST Key Node of the selected Index Root item.
+            let leaf_item_range = leaf_item_ranges.clone().last().unwrap();
+            let key_node_item_range = iter_try!(Self::from_leaf_item_range(hive, leaf_item_range));
+            let key_node_name = iter_try!(key_node_item_range.name(hive));
 
             match key_node_name.partial_cmp(name).unwrap() {
-                Ordering::Equal => return Some(Ok(key_node_element_range)),
+                Ordering::Equal => return Some(Ok(key_node_item_range)),
                 Ordering::Less => {
-                    // The LAST Key Node of the selected Index Root element has a name that comes
+                    // The LAST Key Node of the selected Index Root item has a name that comes
                     // BEFORE the name we are looking for.
-                    // Hence, the searched Key Node must be in an Index Root element AFTER the selected one.
+                    // Hence, the searched Key Node must be in an Index Root item AFTER the selected one.
                     left = mid + 1;
                     continue;
                 }
@@ -174,7 +170,7 @@ impl KeyNodeElementRange {
             }
 
             // If the searched Key Node exists at all, it must be in this Leaf.
-            return self.binary_search_subkey_in_leaf(hive, name, leaf_element_range_iter);
+            return self.binary_search_subkey_in_leaf(hive, name, leaf_item_ranges);
         }
 
         None
@@ -184,29 +180,28 @@ impl KeyNodeElementRange {
         &self,
         hive: &Hive<B>,
         name: &str,
-        leaf_element_range_iter: LeafElementRangeIter,
+        leaf_item_ranges: LeafItemRanges,
     ) -> Option<Result<Self>>
     where
         B: ByteSlice,
     {
         // The following textbook binary search algorithm requires signed math.
         // Fortunately, Leafs have a u16 `count` field, hence we should be able to convert to i32.
-        assert!(leaf_element_range_iter.len() <= u16::MAX as usize);
+        assert!(leaf_item_ranges.len() <= u16::MAX as usize);
         let mut left = 0i32;
-        let mut right = leaf_element_range_iter.len() as i32 - 1;
+        let mut right = leaf_item_ranges.len() as i32 - 1;
 
         while left <= right {
-            // Select the middle Leaf element given the current boundaries and get its name.
+            // Select the middle Leaf item given the current boundaries and get its name.
             let mid = (left + right) / 2;
 
-            let leaf_element_range = leaf_element_range_iter.clone().nth(mid as usize).unwrap();
-            let key_node_element_range =
-                iter_try!(Self::from_leaf_element_range(hive, leaf_element_range,));
-            let key_node_name = iter_try!(key_node_element_range.name(hive));
+            let leaf_item_range = leaf_item_ranges.clone().nth(mid as usize).unwrap();
+            let key_node_item_range = iter_try!(Self::from_leaf_item_range(hive, leaf_item_range));
+            let key_node_name = iter_try!(key_node_item_range.name(hive));
 
             // Check if it's the name we are looking for, otherwise adjust the boundaries accordingly.
             match key_node_name.partial_cmp(name).unwrap() {
-                Ordering::Equal => return Some(Ok(key_node_element_range)),
+                Ordering::Equal => return Some(Ok(key_node_item_range)),
                 Ordering::Less => left = mid + 1,
                 Ordering::Greater => right = mid - 1,
             }
@@ -240,14 +235,13 @@ impl KeyNodeElementRange {
         let flags = KeyNodeFlags::from_bits_truncate(header.flags.get());
         let key_name_length = header.key_name_length.get() as usize;
 
-        let key_name_range =
-            bytes_subrange(&self.data_range, key_name_length).ok_or_else(|| {
-                NtHiveError::InvalidSizeField {
-                    offset: hive.offset_of_field(&header.key_name_length),
-                    expected: key_name_length as usize,
-                    actual: self.data_range.len(),
-                }
-            })?;
+        let key_name_range = byte_subrange(&self.data_range, key_name_length).ok_or_else(|| {
+            NtHiveError::InvalidSizeField {
+                offset: hive.offset_of_field(&header.key_name_length),
+                expected: key_name_length as usize,
+                actual: self.data_range.len(),
+            }
+        })?;
         let key_name_bytes = &hive.data[key_name_range];
 
         if flags.contains(KeyNodeFlags::KEY_COMP_NAME) {
@@ -262,16 +256,16 @@ impl KeyNodeElementRange {
         B: ByteSlice,
     {
         let subkeys = iter_try!(self.subkeys(hive)?);
-        let subkey_iter = iter_try!(subkeys.iter());
+        let sub_key_nodes = iter_try!(subkeys.iter());
 
-        match subkey_iter {
-            SubkeyIter::IndexRoot(index_root_iter) => {
-                let index_root_element_range_iter = index_root_iter.index_root_element_range_iter;
-                self.binary_search_subkey_in_index_root(hive, name, index_root_element_range_iter)
+        match sub_key_nodes {
+            SubKeyNodes::IndexRoot(iter) => {
+                let index_root_item_ranges = iter.index_root_item_ranges;
+                self.binary_search_subkey_in_index_root(hive, name, index_root_item_ranges)
             }
-            SubkeyIter::Leaf(leaf_iter) => {
-                let leaf_element_range_iter = leaf_iter.inner_iter;
-                self.binary_search_subkey_in_leaf(hive, name, leaf_element_range_iter)
+            SubKeyNodes::Leaf(iter) => {
+                let leaf_item_ranges = iter.leaf_item_ranges;
+                self.binary_search_subkey_in_leaf(hive, name, leaf_item_ranges)
             }
         }
     }
@@ -296,13 +290,13 @@ impl KeyNodeElementRange {
     where
         B: ByteSlice,
     {
-        let mut key_node_element_range = self.clone();
+        let mut key_node_item_range = self.clone();
 
         for component in path.split('\\') {
-            key_node_element_range = iter_try!(key_node_element_range.subkey(hive, component)?);
+            key_node_item_range = iter_try!(key_node_item_range.subkey(hive, component)?);
         }
 
-        Some(Ok(key_node_element_range))
+        Some(Ok(key_node_item_range))
     }
 
     fn validate_signature<B>(&self, hive: &Hive<B>) -> Result<()>
@@ -324,7 +318,7 @@ impl KeyNodeElementRange {
         }
     }
 
-    pub fn values<'a, B>(&self, hive: &'a Hive<B>) -> Option<Result<KeyValueIter<'a, B>>>
+    pub fn values<'a, B>(&self, hive: &'a Hive<B>) -> Option<Result<KeyValues<'a, B>>>
     where
         B: ByteSlice,
     {
@@ -339,12 +333,7 @@ impl KeyNodeElementRange {
         let count = header.key_values_count.get();
         let count_field_offset = hive.offset_of_field(&header.key_values_count);
 
-        Some(KeyValueIter::new(
-            hive,
-            count,
-            count_field_offset,
-            cell_range,
-        ))
+        Some(KeyValues::new(hive, count, count_field_offset, cell_range))
     }
 }
 
@@ -356,7 +345,7 @@ impl KeyNodeElementRange {
 /// [`KeyValue`]: crate::key_value::KeyValue
 pub struct KeyNode<H: Deref<Target = Hive<B>>, B: ByteSlice> {
     hive: H,
-    element_range: KeyNodeElementRange,
+    item_range: KeyNodeItemRange,
 }
 
 impl<H, B> KeyNode<H, B>
@@ -365,59 +354,47 @@ where
     B: ByteSlice,
 {
     pub(crate) fn from_cell_range(hive: H, cell_range: Range<usize>) -> Result<Self> {
-        let element_range = KeyNodeElementRange::from_cell_range(&hive, cell_range)?;
-
-        Ok(Self {
-            hive,
-            element_range,
-        })
+        let item_range = KeyNodeItemRange::from_cell_range(&hive, cell_range)?;
+        Ok(Self { hive, item_range })
     }
 
-    pub(crate) fn from_leaf_element_range(
-        hive: H,
-        leaf_element_range: LeafElementRange,
-    ) -> Result<Self> {
-        let element_range =
-            KeyNodeElementRange::from_leaf_element_range(&hive, leaf_element_range)?;
-
-        Ok(Self {
-            hive,
-            element_range,
-        })
+    pub(crate) fn from_leaf_item_range(hive: H, leaf_item_range: LeafItemRange) -> Result<Self> {
+        let item_range = KeyNodeItemRange::from_leaf_item_range(&hive, leaf_item_range)?;
+        Ok(Self { hive, item_range })
     }
 
     /// Returns the name of this Key Node.
     pub fn name(&self) -> Result<NtHiveNameString> {
-        self.element_range.name(&self.hive)
+        self.item_range.name(&self.hive)
     }
 
     /// Finds a single subkey using efficient binary search.
     pub fn subkey(&self, name: &str) -> Option<Result<KeyNode<&Hive<B>, B>>> {
-        let element_range = iter_try!(self.element_range.subkey(&self.hive, name)?);
+        let item_range = iter_try!(self.item_range.subkey(&self.hive, name)?);
 
         Some(Ok(KeyNode {
             hive: &self.hive,
-            element_range,
+            item_range,
         }))
     }
 
     /// Returns a [`SubkeysList`] structure representing the subkeys of this Key Node.
     pub fn subkeys(&self) -> Option<Result<SubkeysList<&Hive<B>, B>>> {
-        self.element_range.subkeys(&self.hive)
+        self.item_range.subkeys(&self.hive)
     }
 
     pub fn subpath(&self, path: &str) -> Option<Result<KeyNode<&Hive<B>, B>>> {
-        let element_range = iter_try!(self.element_range.subpath(&self.hive, path)?);
+        let item_range = iter_try!(self.item_range.subpath(&self.hive, path)?);
 
         Some(Ok(KeyNode {
             hive: &self.hive,
-            element_range,
+            item_range,
         }))
     }
 
     /// Returns an iterator over the values of this Key Node.
-    pub fn values(&self) -> Option<Result<KeyValueIter<B>>> {
-        self.element_range.values(&self.hive)
+    pub fn values(&self) -> Option<Result<KeyValues<B>>> {
+        self.item_range.values(&self.hive)
     }
 }
 
@@ -427,7 +404,7 @@ where
     B: ByteSliceMut,
 {
     pub(crate) fn clear_volatile_subkeys(&mut self) -> Result<()> {
-        let mut header = self.element_range.header_mut(&mut self.hive);
+        let mut header = self.item_range.header_mut(&mut self.hive);
         header.volatile_subkey_count.set(0);
 
         if let Some(subkeys_result) = self.subkeys_mut() {
@@ -442,6 +419,6 @@ where
     }
 
     pub(crate) fn subkeys_mut(&mut self) -> Option<Result<SubkeysList<&mut Hive<B>, B>>> {
-        self.element_range.subkeys(&mut self.hive)
+        self.item_range.subkeys(&mut self.hive)
     }
 }

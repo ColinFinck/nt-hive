@@ -2,38 +2,37 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
-use crate::helpers::bytes_subrange;
+use crate::helpers::byte_subrange;
 use crate::hive::Hive;
 use crate::key_node::KeyNode;
-use crate::leaf::LeafElementRangeIter;
+use crate::leaf::LeafItemRanges;
 use ::byteorder::LittleEndian;
 use core::iter::FusedIterator;
 use core::mem;
 use core::ops::{Deref, Range};
 use zerocopy::*;
 
-/// On-Disk Structure of an Index Root element.
+/// On-Disk Structure of a single Index Root item.
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
-struct IndexRootElement {
+struct IndexRootItem {
     subkeys_list_offset: U32<LittleEndian>,
 }
 
-/// A typed range of bytes returned by [`IndexRootElementRangeIter`].
-pub(crate) struct IndexRootElementRange(Range<usize>);
+/// Byte range of a single Index Root item returned by [`IndexRootItemRanges`].
+pub(crate) struct IndexRootItemRange(Range<usize>);
 
-impl IndexRootElementRange {
+impl IndexRootItemRange {
     pub fn subkeys_list_offset<B>(&self, hive: &Hive<B>) -> u32
     where
         B: ByteSlice,
     {
-        let element =
-            LayoutVerified::<&[u8], IndexRootElement>::new(&hive.data[self.0.clone()]).unwrap();
-        element.subkeys_list_offset.get()
+        let item = LayoutVerified::<&[u8], IndexRootItem>::new(&hive.data[self.0.clone()]).unwrap();
+        item.subkeys_list_offset.get()
     }
 }
 
-impl Deref for IndexRootElementRange {
+impl Deref for IndexRootItemRange {
     type Target = Range<usize>;
 
     fn deref(&self) -> &Self::Target {
@@ -42,44 +41,43 @@ impl Deref for IndexRootElementRange {
 }
 
 /// Iterator over
-///   a contiguous data range containing Index Root elements,
-///   returning an [`IndexRootElementRange`] for each Index Root element.
+///   a contiguous range of data bytes containing Index Root items,
+///   returning an [`IndexRootItemRange`] for each Index Root item.
 ///
 /// On-Disk Signature: `ri`
 #[derive(Clone)]
-pub(crate) struct IndexRootElementRangeIter {
-    elements_range: Range<usize>,
+pub(crate) struct IndexRootItemRanges {
+    items_range: Range<usize>,
 }
 
-impl IndexRootElementRangeIter {
+impl IndexRootItemRanges {
     pub(crate) fn new(
         count: u16,
         count_field_offset: usize,
         data_range: Range<usize>,
     ) -> Result<Self> {
-        let bytes_count = count as usize * mem::size_of::<IndexRootElement>();
+        let byte_count = count as usize * mem::size_of::<IndexRootItem>();
 
-        let elements_range = bytes_subrange(&data_range, bytes_count).ok_or_else(|| {
+        let items_range = byte_subrange(&data_range, byte_count).ok_or_else(|| {
             NtHiveError::InvalidSizeField {
                 offset: count_field_offset,
-                expected: bytes_count,
+                expected: byte_count,
                 actual: data_range.len(),
             }
         })?;
 
-        Ok(Self { elements_range })
+        Ok(Self { items_range })
     }
 }
 
-impl Iterator for IndexRootElementRangeIter {
-    type Item = IndexRootElementRange;
+impl Iterator for IndexRootItemRanges {
+    type Item = IndexRootItemRange;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let element_range =
-            bytes_subrange(&self.elements_range, mem::size_of::<IndexRootElement>())?;
-        self.elements_range.start += mem::size_of::<IndexRootElement>();
+        let item_range = byte_subrange(&self.items_range, mem::size_of::<IndexRootItem>())?;
+        self.items_range.start += mem::size_of::<IndexRootItem>();
 
-        Some(IndexRootElementRange(element_range))
+        Some(IndexRootItemRange(item_range))
     }
 
     fn count(self) -> usize {
@@ -98,33 +96,33 @@ impl Iterator for IndexRootElementRangeIter {
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         // `n` is arbitrary and usize, so we may hit boundaries here. Check that!
-        let bytes_to_skip = n.checked_mul(mem::size_of::<IndexRootElement>())?;
-        self.elements_range.start = self.elements_range.start.checked_add(bytes_to_skip)?;
+        let bytes_to_skip = n.checked_mul(mem::size_of::<IndexRootItem>())?;
+        self.items_range.start = self.items_range.start.checked_add(bytes_to_skip)?;
         self.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.elements_range.len() / mem::size_of::<IndexRootElement>();
+        let size = self.items_range.len() / mem::size_of::<IndexRootItem>();
         (size, Some(size))
     }
 }
 
-impl ExactSizeIterator for IndexRootElementRangeIter {}
-impl FusedIterator for IndexRootElementRangeIter {}
+impl ExactSizeIterator for IndexRootItemRanges {}
+impl FusedIterator for IndexRootItemRanges {}
 
 /// Iterator over
-///   a contiguous data range containing Index Root elements,
-///   returning a constant [`KeyNode`] for each Leaf element of each Index Root element.
+///   a contiguous range of data bytes containing Index Root items,
+///   returning a constant [`KeyNode`] for each Leaf item of each Index Root item.
 ///
 /// On-Disk Signature: `ri`
 #[derive(Clone)]
-pub struct IndexRootIter<'a, B: ByteSlice> {
+pub struct IndexRootKeyNodes<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
-    pub(crate) index_root_element_range_iter: IndexRootElementRangeIter,
-    leaf_element_range_iter: Option<LeafElementRangeIter>,
+    pub(crate) index_root_item_ranges: IndexRootItemRanges,
+    leaf_item_ranges: Option<LeafItemRanges>,
 }
 
-impl<'a, B> IndexRootIter<'a, B>
+impl<'a, B> IndexRootKeyNodes<'a, B>
 where
     B: ByteSlice,
 {
@@ -134,18 +132,18 @@ where
         count_field_offset: usize,
         data_range: Range<usize>,
     ) -> Result<Self> {
-        let index_root_element_range_iter =
-            IndexRootElementRangeIter::new(count, count_field_offset, data_range)?;
+        let index_root_item_ranges =
+            IndexRootItemRanges::new(count, count_field_offset, data_range)?;
 
         Ok(Self {
             hive,
-            index_root_element_range_iter,
-            leaf_element_range_iter: None,
+            index_root_item_ranges,
+            leaf_item_ranges: None,
         })
     }
 }
 
-impl<'a, B> Iterator for IndexRootIter<'a, B>
+impl<'a, B> Iterator for IndexRootKeyNodes<'a, B>
 where
     B: ByteSlice,
 {
@@ -153,42 +151,40 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(leaf_iter) = self.leaf_element_range_iter.as_mut() {
-                if let Some(leaf_element_range) = leaf_iter.next() {
-                    let key_node = iter_try!(KeyNode::from_leaf_element_range(
-                        self.hive,
-                        leaf_element_range
-                    ));
+            if let Some(leaf_item_ranges) = self.leaf_item_ranges.as_mut() {
+                if let Some(leaf_item_range) = leaf_item_ranges.next() {
+                    let key_node =
+                        iter_try!(KeyNode::from_leaf_item_range(self.hive, leaf_item_range));
                     return Some(Ok(key_node));
                 }
             }
 
-            // No leaf_iter or the last one has been fully iterated.
-            // So get the next Index Root element and build a leaf_iter out of that.
-            let index_root_element_range = self.index_root_element_range_iter.next()?;
-            let leaf_iter = iter_try!(LeafElementRangeIter::from_index_root_element_range(
+            // No leaf_item_ranges or the last one has been fully iterated.
+            // So get the next Index Root item and build leaf_item_ranges out of that.
+            let index_root_item_range = self.index_root_item_ranges.next()?;
+            let leaf_item_ranges = iter_try!(LeafItemRanges::from_index_root_item_range(
                 self.hive,
-                index_root_element_range
+                index_root_item_range
             ));
-            self.leaf_element_range_iter = Some(leaf_iter);
+            self.leaf_item_ranges = Some(leaf_item_ranges);
         }
     }
 }
 
-impl<'a, B> FusedIterator for IndexRootIter<'a, B> where B: ByteSlice {}
+impl<'a, B> FusedIterator for IndexRootKeyNodes<'a, B> where B: ByteSlice {}
 
 /// Iterator over
-///   a contiguous data range containing Index Root elements,
-///   returning a mutable [`KeyNode`] for each Leaf element of each Index Root element.
+///   a contiguous range of data bytes containing Index Root items,
+///   returning a mutable [`KeyNode`] for each Leaf item of each Index Root item.
 ///
 /// On-Disk Signature: `ri`
-pub(crate) struct IndexRootIterMut<'a, B: ByteSliceMut> {
+pub(crate) struct IndexRootKeyNodesMut<'a, B: ByteSliceMut> {
     hive: &'a mut Hive<B>,
-    index_root_element_range_iter: IndexRootElementRangeIter,
-    leaf_element_range_iter: Option<LeafElementRangeIter>,
+    index_root_item_ranges: IndexRootItemRanges,
+    leaf_item_ranges: Option<LeafItemRanges>,
 }
 
-impl<'a, B> IndexRootIterMut<'a, B>
+impl<'a, B> IndexRootKeyNodesMut<'a, B>
 where
     B: ByteSliceMut,
 {
@@ -198,36 +194,36 @@ where
         count_field_offset: usize,
         data_range: Range<usize>,
     ) -> Result<Self> {
-        let index_root_element_range_iter =
-            IndexRootElementRangeIter::new(count, count_field_offset, data_range)?;
+        let index_root_item_ranges =
+            IndexRootItemRanges::new(count, count_field_offset, data_range)?;
 
         Ok(Self {
             hive,
-            index_root_element_range_iter,
-            leaf_element_range_iter: None,
+            index_root_item_ranges,
+            leaf_item_ranges: None,
         })
     }
 
     pub(crate) fn next<'e>(&'e mut self) -> Option<Result<KeyNode<&'e mut Hive<B>, B>>> {
         loop {
-            if let Some(leaf_iter) = self.leaf_element_range_iter.as_mut() {
-                if let Some(leaf_element_range) = leaf_iter.next() {
-                    let key_node = iter_try!(KeyNode::from_leaf_element_range(
+            if let Some(leaf_item_ranges) = self.leaf_item_ranges.as_mut() {
+                if let Some(leaf_item_range) = leaf_item_ranges.next() {
+                    let key_node = iter_try!(KeyNode::from_leaf_item_range(
                         &mut *self.hive,
-                        leaf_element_range
+                        leaf_item_range
                     ));
                     return Some(Ok(key_node));
                 }
             }
 
-            // No leaf_iter or the last one has been fully iterated.
-            // So get the next Index Root element and build a leaf_iter out of that.
-            let index_root_element_range = self.index_root_element_range_iter.next()?;
-            let leaf_iter = iter_try!(LeafElementRangeIter::from_index_root_element_range(
+            // No leaf_item_ranges or the last one has been fully iterated.
+            // So get the next Index Root item and build leaf_item_ranges out of that.
+            let index_root_item_range = self.index_root_item_ranges.next()?;
+            let leaf_item_ranges = iter_try!(LeafItemRanges::from_index_root_item_range(
                 self.hive,
-                index_root_element_range
+                index_root_item_range
             ));
-            self.leaf_element_range_iter = Some(leaf_iter);
+            self.leaf_item_ranges = Some(leaf_item_ranges);
         }
     }
 }

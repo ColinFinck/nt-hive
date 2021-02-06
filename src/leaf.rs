@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
-use crate::helpers::bytes_subrange;
+use crate::helpers::byte_subrange;
 use crate::hive::Hive;
-use crate::index_root::IndexRootElementRange;
+use crate::index_root::IndexRootItemRange;
 use crate::key_node::KeyNode;
 use crate::subkeys_list::SubkeysList;
 use ::byteorder::LittleEndian;
@@ -13,31 +13,31 @@ use core::mem;
 use core::ops::{Deref, Range};
 use zerocopy::*;
 
-/// On-Disk Structure of a Fast Leaf element (On-Disk Signature: `lf`).
+/// On-Disk Structure of a Fast Leaf item (On-Disk Signature: `lf`).
 /// They are supported since Windows NT 4.
 #[allow(dead_code)]
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
-struct FastLeafElement {
+struct FastLeafItem {
     key_node_offset: U32<LittleEndian>,
     name_hint: [u8; 4],
 }
 
-/// On-Disk Structure of a Hash Leaf element (On-Disk Signature: `lh`).
+/// On-Disk Structure of a Hash Leaf item (On-Disk Signature: `lh`).
 /// They are supported since Windows XP.
 #[allow(dead_code)]
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
-struct HashLeafElement {
+struct HashLeafItem {
     key_node_offset: U32<LittleEndian>,
     name_hash: [u8; 4],
 }
 
-/// On-Disk Structure of an Index Leaf element (On-Disk Signature: `li`).
+/// On-Disk Structure of an Index Leaf item (On-Disk Signature: `li`).
 /// They are supported in all Windows versions.
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
-struct IndexLeafElement {
+struct IndexLeafItem {
     key_node_offset: U32<LittleEndian>,
 }
 
@@ -69,34 +69,34 @@ impl LeafType {
         }
     }
 
-    fn element_size(&self) -> usize {
+    fn item_size(&self) -> usize {
         match self {
-            Self::Fast => mem::size_of::<FastLeafElement>(),
-            Self::Hash => mem::size_of::<HashLeafElement>(),
-            Self::Index => mem::size_of::<IndexLeafElement>(),
+            Self::Fast => mem::size_of::<FastLeafItem>(),
+            Self::Hash => mem::size_of::<HashLeafItem>(),
+            Self::Index => mem::size_of::<IndexLeafItem>(),
         }
     }
 }
 
-/// A typed range of bytes returned by [`LeafElementRangeIter`].
-pub(crate) struct LeafElementRange(Range<usize>);
+/// Byte range of a single Leaf item returned by [`LeafItemRanges`].
+pub(crate) struct LeafItemRange(Range<usize>);
 
-impl LeafElementRange {
+impl LeafItemRange {
     pub fn key_node_offset<B>(&self, hive: &Hive<B>) -> u32
     where
         B: ByteSlice,
     {
-        // We make use of the fact that a `FastLeafElement` or `HashLeafElement` is just an
-        // `IndexLeafElement` with additional fields.
+        // We make use of the fact that a `FastLeafItem` or `HashLeafItem` is just an
+        // `IndexLeafItem` with additional fields.
         // As they all have the `key_node_offset` as their first field, treat them equally.
-        let (index_leaf_element, _) =
-            LayoutVerified::<&[u8], IndexLeafElement>::new_from_prefix(&hive.data[self.0.clone()])
+        let (index_leaf_item, _) =
+            LayoutVerified::<&[u8], IndexLeafItem>::new_from_prefix(&hive.data[self.0.clone()])
                 .unwrap();
-        index_leaf_element.key_node_offset.get()
+        index_leaf_item.key_node_offset.get()
     }
 }
 
-impl Deref for LeafElementRange {
+impl Deref for LeafItemRange {
     type Target = Range<usize>;
 
     fn deref(&self) -> &Self::Target {
@@ -105,47 +105,47 @@ impl Deref for LeafElementRange {
 }
 
 /// Iterator over
-///   a contiguous data range containing Leaf elements of any type (Fast/Hash/Index),
-///   returning a [`LeafElementRange`] for each Leaf element.
+///   a contiguous range of data bytes containing Leaf items of any type (Fast/Hash/Index),
+///   returning a [`LeafItemRange`] for each Leaf item.
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`
 #[derive(Clone)]
-pub(crate) struct LeafElementRangeIter {
-    elements_range: Range<usize>,
+pub(crate) struct LeafItemRanges {
+    items_range: Range<usize>,
     leaf_type: LeafType,
 }
 
-impl LeafElementRangeIter {
+impl LeafItemRanges {
     pub fn new(
         count: u16,
         count_field_offset: usize,
         data_range: Range<usize>,
         leaf_type: LeafType,
     ) -> Result<Self> {
-        let bytes_count = count as usize * leaf_type.element_size();
+        let byte_count = count as usize * leaf_type.item_size();
 
-        let elements_range = bytes_subrange(&data_range, bytes_count).ok_or_else(|| {
+        let items_range = byte_subrange(&data_range, byte_count).ok_or_else(|| {
             NtHiveError::InvalidSizeField {
                 offset: count_field_offset,
-                expected: bytes_count,
+                expected: byte_count,
                 actual: data_range.len(),
             }
         })?;
 
         Ok(Self {
-            elements_range,
+            items_range,
             leaf_type,
         })
     }
 
-    pub fn from_index_root_element_range<B>(
+    pub fn from_index_root_item_range<B>(
         hive: &Hive<B>,
-        index_root_element_range: IndexRootElementRange,
+        index_root_item_range: IndexRootItemRange,
     ) -> Result<Self>
     where
         B: ByteSlice,
     {
-        let subkeys_list_offset = index_root_element_range.subkeys_list_offset(hive);
+        let subkeys_list_offset = index_root_item_range.subkeys_list_offset(hive);
         let cell_range = hive.cell_range_from_data_offset(subkeys_list_offset)?;
         let subkeys_list = SubkeysList::new_without_index_root(hive, cell_range)?;
 
@@ -153,7 +153,7 @@ impl LeafElementRangeIter {
         let count = header.count.get();
         let count_field_offset = hive.offset_of_field(&header.count);
 
-        // Subkeys Lists belonging to Index Root elements need to contain at least 1 element.
+        // Subkeys Lists belonging to Index Root items need to contain at least 1 item.
         // Otherwise, we can't perform efficient binary search on them, which is the sole reason
         // Index Roots exist.
         if count == 0 {
@@ -165,7 +165,7 @@ impl LeafElementRangeIter {
         }
 
         let leaf_type = LeafType::from_signature(&header.signature).unwrap();
-        LeafElementRangeIter::new(
+        LeafItemRanges::new(
             count,
             count_field_offset,
             subkeys_list.data_range,
@@ -174,15 +174,15 @@ impl LeafElementRangeIter {
     }
 }
 
-impl Iterator for LeafElementRangeIter {
-    type Item = LeafElementRange;
+impl Iterator for LeafItemRanges {
+    type Item = LeafItemRange;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let element_size = self.leaf_type.element_size();
-        let element_range = bytes_subrange(&self.elements_range, element_size)?;
-        self.elements_range.start += element_size;
+        let item_size = self.leaf_type.item_size();
+        let item_range = byte_subrange(&self.items_range, item_size)?;
+        self.items_range.start += item_size;
 
-        Some(LeafElementRange(element_range))
+        Some(LeafItemRange(item_range))
     }
 
     fn count(self) -> usize {
@@ -201,32 +201,32 @@ impl Iterator for LeafElementRangeIter {
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         // `n` is arbitrary and usize, so we may hit boundaries here. Check that!
-        let bytes_to_skip = n.checked_mul(self.leaf_type.element_size())?;
-        self.elements_range.start = self.elements_range.start.checked_add(bytes_to_skip)?;
+        let bytes_to_skip = n.checked_mul(self.leaf_type.item_size())?;
+        self.items_range.start = self.items_range.start.checked_add(bytes_to_skip)?;
         self.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.elements_range.len() / self.leaf_type.element_size();
+        let size = self.items_range.len() / self.leaf_type.item_size();
         (size, Some(size))
     }
 }
 
-impl ExactSizeIterator for LeafElementRangeIter {}
-impl FusedIterator for LeafElementRangeIter {}
+impl ExactSizeIterator for LeafItemRanges {}
+impl FusedIterator for LeafItemRanges {}
 
 /// Iterator over
-///   a contiguous data range containing Leaf elements of any type (Fast/Hash/Index),
-///   returning a constant [`KeyNode`] for each Leaf element.
+///   a contiguous range of data bytes containing Leaf items of any type (Fast/Hash/Index),
+///   returning a constant [`KeyNode`] for each Leaf item.
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`
 #[derive(Clone)]
-pub struct LeafIter<'a, B: ByteSlice> {
+pub struct LeafKeyNodes<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
-    pub(crate) inner_iter: LeafElementRangeIter,
+    pub(crate) leaf_item_ranges: LeafItemRanges,
 }
 
-impl<'a, B> LeafIter<'a, B>
+impl<'a, B> LeafKeyNodes<'a, B>
 where
     B: ByteSlice,
 {
@@ -237,29 +237,30 @@ where
         data_range: Range<usize>,
         leaf_type: LeafType,
     ) -> Result<Self> {
-        let inner_iter =
-            LeafElementRangeIter::new(count, count_field_offset, data_range, leaf_type)?;
-        Ok(Self { hive, inner_iter })
+        let leaf_item_ranges =
+            LeafItemRanges::new(count, count_field_offset, data_range, leaf_type)?;
+
+        Ok(Self {
+            hive,
+            leaf_item_ranges,
+        })
     }
 }
 
-impl<'a, B> Iterator for LeafIter<'a, B>
+impl<'a, B> Iterator for LeafKeyNodes<'a, B>
 where
     B: ByteSlice,
 {
     type Item = Result<KeyNode<&'a Hive<B>, B>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let leaf_element_range = self.inner_iter.next()?;
-        let key_node = iter_try!(KeyNode::from_leaf_element_range(
-            self.hive,
-            leaf_element_range
-        ));
+        let leaf_item_range = self.leaf_item_ranges.next()?;
+        let key_node = iter_try!(KeyNode::from_leaf_item_range(self.hive, leaf_item_range));
         Some(Ok(key_node))
     }
 
     fn count(self) -> usize {
-        self.inner_iter.count()
+        self.leaf_item_ranges.count()
     }
 
     fn last(mut self) -> Option<Self::Item> {
@@ -273,34 +274,34 @@ where
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         // `n` is arbitrary and usize, so we may hit boundaries here. Check that!
-        let bytes_to_skip = n.checked_mul(self.inner_iter.leaf_type.element_size())?;
-        self.inner_iter.elements_range.start = self
-            .inner_iter
-            .elements_range
+        let bytes_to_skip = n.checked_mul(self.leaf_item_ranges.leaf_type.item_size())?;
+        self.leaf_item_ranges.items_range.start = self
+            .leaf_item_ranges
+            .items_range
             .start
             .checked_add(bytes_to_skip)?;
         self.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner_iter.size_hint()
+        self.leaf_item_ranges.size_hint()
     }
 }
 
-impl<'a, B> ExactSizeIterator for LeafIter<'a, B> where B: ByteSlice {}
-impl<'a, B> FusedIterator for LeafIter<'a, B> where B: ByteSlice {}
+impl<'a, B> ExactSizeIterator for LeafKeyNodes<'a, B> where B: ByteSlice {}
+impl<'a, B> FusedIterator for LeafKeyNodes<'a, B> where B: ByteSlice {}
 
 /// Iterator over
-///   a contiguous data range containing Leaf elements of any type (Fast/Hash/Index),
-///   returning a mutable [`KeyNode`] for each Leaf element.
+///   a contiguous range of data bytes containing Leaf items of any type (Fast/Hash/Index),
+///   returning a mutable [`KeyNode`] for each Leaf item.
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`
-pub struct LeafIterMut<'a, B: ByteSliceMut> {
+pub struct LeafKeyNodesMut<'a, B: ByteSliceMut> {
     hive: &'a mut Hive<B>,
-    inner_iter: LeafElementRangeIter,
+    leaf_item_ranges: LeafItemRanges,
 }
 
-impl<'a, B> LeafIterMut<'a, B>
+impl<'a, B> LeafKeyNodesMut<'a, B>
 where
     B: ByteSliceMut,
 {
@@ -311,16 +312,20 @@ where
         data_range: Range<usize>,
         leaf_type: LeafType,
     ) -> Result<Self> {
-        let inner_iter =
-            LeafElementRangeIter::new(count, count_field_offset, data_range, leaf_type)?;
-        Ok(Self { hive, inner_iter })
+        let leaf_item_ranges =
+            LeafItemRanges::new(count, count_field_offset, data_range, leaf_type)?;
+
+        Ok(Self {
+            hive,
+            leaf_item_ranges,
+        })
     }
 
     pub(crate) fn next<'e>(&'e mut self) -> Option<Result<KeyNode<&'e mut Hive<B>, B>>> {
-        let leaf_element_range = self.inner_iter.next()?;
-        let key_node = iter_try!(KeyNode::from_leaf_element_range(
+        let leaf_item_range = self.leaf_item_ranges.next()?;
+        let key_node = iter_try!(KeyNode::from_leaf_item_range(
             &mut *self.hive,
-            leaf_element_range
+            leaf_item_range
         ));
         Some(Ok(key_node))
     }

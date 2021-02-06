@@ -12,15 +12,15 @@ macro_rules! iter_try {
     };
 }
 
-/// Return a subrange of the given `Range<usize>` encompassing `bytes_count`
+/// Return a subrange of the given `Range<usize>` encompassing `byte_count`
 /// bytes and starting at the beginning of `range`.
 ///
-/// This function performs all necessary sanity checks to guarantee that `bytes_count`
+/// This function performs all necessary sanity checks to guarantee that `byte_count`
 /// bytes are actually available within the boundaries of the given `range`.
 /// If that is not the case, `None` is returned.
-pub(crate) fn bytes_subrange(range: &Range<usize>, bytes_count: usize) -> Option<Range<usize>> {
+pub(crate) fn byte_subrange(range: &Range<usize>, byte_count: usize) -> Option<Range<usize>> {
     // Guard against integer overflows.
-    let subrange_end = range.start.checked_add(bytes_count)?;
+    let subrange_end = range.start.checked_add(byte_count)?;
 
     // Guard against exceeding the boundaries of the given range.
     if subrange_end > range.end {

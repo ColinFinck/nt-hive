@@ -1,9 +1,9 @@
 // Copyright 2020-2021 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use crate::big_data::{BigDataIter, BIG_DATA_SEGMENT_SIZE};
+use crate::big_data::{BigDataSlices, BIG_DATA_SEGMENT_SIZE};
 use crate::error::{NtHiveError, Result};
-use crate::helpers::bytes_subrange;
+use crate::helpers::byte_subrange;
 use crate::hive::Hive;
 use crate::string::NtHiveNameString;
 use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
@@ -30,7 +30,7 @@ bitflags! {
 
 pub enum KeyValueData<'a, B: ByteSlice> {
     Small(&'a [u8]),
-    Big(BigDataIter<'a, B>),
+    Big(BigDataSlices<'a, B>),
 }
 
 impl<'a, B> KeyValueData<'a, B>
@@ -55,6 +55,7 @@ where
     }
 }
 
+/// Possible data types of the data belonging to a [`KeyValue`].
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u32)]
 pub enum KeyValueDataType {
@@ -72,7 +73,7 @@ pub enum KeyValueDataType {
     RegQWord = 0x0000_000b,
 }
 
-/// On-Disk Structure of a Key Value Header.
+/// On-Disk Structure of a Key Value header.
 #[allow(dead_code)]
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
@@ -86,8 +87,12 @@ struct KeyValueHeader {
     spare: U16<LittleEndian>,
 }
 
-/// A named value belonging to a key.
-/// Signature: vk
+/// A single value that belongs to a [`KeyNode`].
+/// It has a name and attached data.
+///
+/// On-Disk Signature: `vk`
+///
+/// [`KeyNode`]: crate::key_node::KeyNode
 pub struct KeyValue<H: Deref<Target = Hive<B>>, B: ByteSlice> {
     hive: H,
     header_range: Range<usize>,
@@ -100,7 +105,7 @@ where
     B: ByteSlice,
 {
     pub(crate) fn new(hive: H, cell_range: Range<usize>) -> Result<Self> {
-        let header_range = bytes_subrange(&cell_range, mem::size_of::<KeyValueHeader>())
+        let header_range = byte_subrange(&cell_range, mem::size_of::<KeyValueHeader>())
             .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: hive.offset_of_data_offset(cell_range.start),
                 expected: mem::size_of::<KeyValueHeader>(),
@@ -122,6 +127,7 @@ where
         LayoutVerified::new(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
+    /// Returns the raw data bytes as [`KeyValueData`].
     pub fn data(&self) -> Result<KeyValueData<B>> {
         let header = self.header();
 
@@ -167,7 +173,7 @@ where
             let cell_range = self
                 .hive
                 .cell_range_from_data_offset(header.data_offset.get())?;
-            let iter = BigDataIter::new(
+            let iter = BigDataSlices::new(
                 &self.hive,
                 data_size as u32,
                 self.hive.offset_of_field(&header.data_size),
@@ -185,7 +191,7 @@ where
     {
         let mut string = String::new();
 
-        // A very long REG_SZ / REG_EXPAND_SZ value may be split over several Big Data Segments.
+        // A very long REG_SZ / REG_EXPAND_SZ value may be split over several Big Data segments.
         // Transparently concatenate them in the output string.
         for slice_data in iter {
             let slice_data = slice_data?;
@@ -216,6 +222,8 @@ where
         Ok(string)
     }
 
+    /// Checks if this is a `REG_SZ` or `REG_EXPAND_SZ` Key Value
+    /// and returns the data as a [`String`] in that case.
     #[cfg(feature = "alloc")]
     pub fn string_data(&self) -> Result<String> {
         match self.data_type()? {
@@ -234,6 +242,8 @@ where
         }
     }
 
+    /// Checks if this is a `REG_DWORD` or `REG_DWORD_BIG_ENDIAN` Key Value
+    /// and returns the data as a [`u32`] in that case.
     pub fn dword_data(&self) -> Result<u32> {
         // DWORD data never needs a Big Data structure.
         if let KeyValueData::Small(data) = self.data()? {
@@ -279,7 +289,7 @@ where
         let mut strings = Vec::new();
         let mut string = String::new();
 
-        // A very long REG_MULTI_SZ value may be split over several Big Data Segments.
+        // A very long REG_MULTI_SZ value may be split over several Big Data segments.
         // Transparently concatenate them in the output string.
         for slice_data in iter {
             let slice_data = slice_data?;
@@ -311,6 +321,8 @@ where
         Ok(strings)
     }
 
+    /// Checks if this is a `REG_MULTI_SZ` Key Value
+    /// and returns the data as a [`Vec`] of [`String`]s in that case.
     #[cfg(feature = "alloc")]
     pub fn multi_string_data(&self) -> Result<Vec<String>> {
         // Ensure that this is a REG_MULTI_SZ data type.
@@ -330,6 +342,8 @@ where
         }
     }
 
+    /// Checks if this is a `REG_QWORD` Key Value
+    /// and returns the data as a [`u64`] in that case.
     pub fn qword_data(&self) -> Result<u64> {
         // QWORD data never needs a Big Data structure.
         if let KeyValueData::Small(data) = self.data()? {
@@ -363,11 +377,13 @@ where
         }
     }
 
+    /// Returns the size of the raw data.
     pub fn data_size(&self) -> u32 {
         let header = self.header();
         header.data_size.get() & !DATA_STORED_IN_DATA_OFFSET
     }
 
+    /// Returns the data type of this Key Value.
     pub fn data_type(&self) -> Result<KeyValueDataType> {
         let header = self.header();
         let data_type_code = header.data_type.get();
@@ -380,12 +396,13 @@ where
             })
     }
 
+    /// Returns the name of this Key Value.
     pub fn name(&self) -> Result<NtHiveNameString> {
         let header = self.header();
         let flags = KeyValueFlags::from_bits_truncate(header.flags.get());
         let name_length = header.name_length.get() as usize;
 
-        let name_range = bytes_subrange(&self.data_range, name_length).ok_or_else(|| {
+        let name_range = byte_subrange(&self.data_range, name_length).ok_or_else(|| {
             NtHiveError::InvalidSizeField {
                 offset: self.hive.offset_of_field(&header.name_length),
                 expected: name_length as usize,
