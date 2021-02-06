@@ -8,7 +8,7 @@ use ::byteorder::LittleEndian;
 use core::cmp;
 use core::iter::FusedIterator;
 use core::mem;
-use core::ops::Range;
+use core::ops::{Deref, Range};
 use zerocopy::*;
 
 /// Number of bytes that a single Big Data segment can hold.
@@ -35,55 +35,48 @@ struct BigDataListItem {
     segment_offset: U32<LittleEndian>,
 }
 
-impl BigDataListItem {
-    fn items_range(
-        count: u16,
-        count_field_offset: usize,
-        cell_range: Range<usize>,
-    ) -> Result<Range<usize>> {
-        let byte_count = count as usize * mem::size_of::<Self>();
+/// Byte range of a single Big Data list item returned by [`BigDataListItemRanges`].
+struct BigDataListItemRange(Range<usize>);
 
-        byte_subrange(&cell_range, byte_count).ok_or_else(|| NtHiveError::InvalidSizeField {
-            offset: count_field_offset,
-            expected: byte_count,
-            actual: cell_range.len(),
-        })
-    }
-
-    fn next_segment_offset<B>(hive: &Hive<B>, items_range: &mut Range<usize>) -> Option<u32>
+impl BigDataListItemRange {
+    fn segment_offset<B>(&self, hive: &Hive<B>) -> u32
     where
         B: ByteSlice,
     {
-        let item_range = byte_subrange(items_range, mem::size_of::<Self>())?;
-        items_range.start += mem::size_of::<Self>();
+        let item =
+            LayoutVerified::<&[u8], BigDataListItem>::new(&hive.data[self.0.clone()]).unwrap();
+        item.segment_offset.get()
+    }
+}
 
-        let item = LayoutVerified::<&[u8], Self>::new(&hive.data[item_range]).unwrap();
-        Some(item.segment_offset.get())
+impl Deref for BigDataListItemRange {
+    type Target = Range<usize>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Big Data list items,
-///   returning a constant byte slice for each item.
+///   returning a [`BigDataListItemRange`] for each item.
 ///
 /// On-Disk Signature: `db`
 #[derive(Clone)]
-pub struct BigDataSlices<'a, B: ByteSlice> {
-    hive: &'a Hive<B>,
+struct BigDataListItemRanges {
     items_range: Range<usize>,
-    bytes_left: usize,
 }
 
-impl<'a, B> BigDataSlices<'a, B>
-where
-    B: ByteSlice,
-{
-    pub(crate) fn new(
-        hive: &'a Hive<B>,
+impl BigDataListItemRanges {
+    pub(crate) fn new<B>(
+        hive: &Hive<B>,
         data_size: u32,
         data_size_field_offset: usize,
         header_cell_range: Range<usize>,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        B: ByteSlice,
+    {
         let data_size = data_size as usize;
 
         // The passed `header_cell_range` contains just the `BigDataHeader`.
@@ -115,24 +108,26 @@ where
         let segment_list_cell_range = hive.cell_range_from_data_offset(segment_list_offset)?;
 
         // Finally calculate the range of Big Data list items we want to iterate over.
-        let segment_count_field_offset = hive.offset_of_field(&header.segment_count);
-        let items_range = BigDataListItem::items_range(
-            segment_count,
-            segment_count_field_offset,
-            segment_list_cell_range,
-        )?;
+        let byte_count = segment_count as usize * mem::size_of::<BigDataListItem>();
 
-        Ok(Self {
-            hive,
-            items_range,
-            bytes_left: data_size,
-        })
+        let items_range = byte_subrange(&segment_list_cell_range, byte_count).ok_or_else(|| {
+            NtHiveError::InvalidSizeField {
+                offset: hive.offset_of_field(&header.segment_count),
+                expected: byte_count,
+                actual: segment_list_cell_range.len(),
+            }
+        })?;
+
+        Ok(Self { items_range })
     }
 
-    fn validate_signature(
-        hive: &'a Hive<B>,
+    fn validate_signature<B>(
+        hive: &Hive<B>,
         header: &LayoutVerified<&[u8], BigDataHeader>,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        B: ByteSlice,
+    {
         let signature = &header.signature;
         let expected_signature = b"db";
 
@@ -145,6 +140,79 @@ where
                 actual: *signature,
             })
         }
+    }
+}
+
+impl Iterator for BigDataListItemRanges {
+    type Item = BigDataListItemRange;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item_range = byte_subrange(&self.items_range, mem::size_of::<BigDataListItem>())?;
+        self.items_range.start += mem::size_of::<BigDataListItem>();
+
+        Some(BigDataListItemRange(item_range))
+    }
+
+    fn count(self) -> usize {
+        let (size, _) = self.size_hint();
+        size
+    }
+
+    fn last(mut self) -> Option<Self::Item> {
+        let (size, _) = self.size_hint();
+        if size == 0 {
+            return None;
+        }
+
+        self.nth(size - 1)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        // `n` is arbitrary and usize, so we may hit boundaries here. Check that!
+        let bytes_to_skip = n.checked_mul(mem::size_of::<BigDataListItem>())?;
+        self.items_range.start = self.items_range.start.checked_add(bytes_to_skip)?;
+        self.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let size = self.items_range.len() / mem::size_of::<BigDataListItem>();
+        (size, Some(size))
+    }
+}
+
+impl ExactSizeIterator for BigDataListItemRanges {}
+impl FusedIterator for BigDataListItemRanges {}
+
+/// Iterator over
+///   a contiguous range of data bytes containing Big Data list items,
+///   returning a constant byte slice for each item.
+///
+/// On-Disk Signature: `db`
+#[derive(Clone)]
+pub struct BigDataSlices<'a, B: ByteSlice> {
+    hive: &'a Hive<B>,
+    big_data_list_item_ranges: BigDataListItemRanges,
+    bytes_left: usize,
+}
+
+impl<'a, B> BigDataSlices<'a, B>
+where
+    B: ByteSlice,
+{
+    pub(crate) fn new(
+        hive: &'a Hive<B>,
+        data_size: u32,
+        data_size_field_offset: usize,
+        header_cell_range: Range<usize>,
+    ) -> Result<Self> {
+        let big_data_list_item_ranges =
+            BigDataListItemRanges::new(hive, data_size, data_size_field_offset, header_cell_range)?;
+
+        Ok(Self {
+            hive,
+            big_data_list_item_ranges,
+            bytes_left: data_size as usize,
+        })
     }
 }
 
@@ -161,10 +229,9 @@ where
             return None;
         }
 
-        // Get the next segment offset (advancing our `items_range` cursor) and
-        // adjust `bytes_left` accordingly.
-        let segment_offset =
-            BigDataListItem::next_segment_offset(&self.hive, &mut self.items_range)?;
+        // Get the next segment offset and adjust `bytes_left` accordingly.
+        let big_data_list_item_range = self.big_data_list_item_ranges.next()?;
+        let segment_offset = big_data_list_item_range.segment_offset(&self.hive);
         self.bytes_left -= bytes_to_return;
 
         // Get the cell belonging to that offset and check if it contains as many bytes
@@ -183,8 +250,7 @@ where
     }
 
     fn count(self) -> usize {
-        let (size, _) = self.size_hint();
-        size
+        self.big_data_list_item_ranges.count()
     }
 
     fn last(mut self) -> Option<Self::Item> {
@@ -206,14 +272,13 @@ where
 
         // This calculation is safe considering that we have checked the
         // multiplication and subtraction above.
-        self.items_range.start += n * mem::size_of::<BigDataListItem>();
+        self.big_data_list_item_ranges.items_range.start += n * mem::size_of::<BigDataListItem>();
 
         self.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let size = self.items_range.len() / mem::size_of::<BigDataListItem>();
-        (size, Some(size))
+        self.big_data_list_item_ranges.size_hint()
     }
 }
 

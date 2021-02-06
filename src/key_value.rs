@@ -169,7 +169,7 @@ where
             Ok(KeyValueData::Small(&self.hive.data[data_start..data_end]))
         } else {
             // The data size exceeds what can be stored in a single cell.
-            // It's therefore stored in a BigData structure referencing multiple cells.
+            // It's therefore stored in a Big Data structure referencing multiple cells.
             let cell_range = self
                 .hive
                 .cell_range_from_data_offset(header.data_offset.get())?;
