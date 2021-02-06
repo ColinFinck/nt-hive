@@ -212,6 +212,12 @@ impl Iterator for LeafItemRanges {
     }
 }
 
+impl<B: ByteSlice> From<LeafKeyNodes<'_, B>> for LeafItemRanges {
+    fn from(leaf_key_nodes: LeafKeyNodes<'_, B>) -> LeafItemRanges {
+        leaf_key_nodes.leaf_item_ranges
+    }
+}
+
 impl ExactSizeIterator for LeafItemRanges {}
 impl FusedIterator for LeafItemRanges {}
 
@@ -223,7 +229,7 @@ impl FusedIterator for LeafItemRanges {}
 #[derive(Clone)]
 pub struct LeafKeyNodes<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
-    pub(crate) leaf_item_ranges: LeafItemRanges,
+    leaf_item_ranges: LeafItemRanges,
 }
 
 impl<'a, B> LeafKeyNodes<'a, B>
@@ -321,7 +327,7 @@ where
         })
     }
 
-    pub(crate) fn next<'e>(&'e mut self) -> Option<Result<KeyNode<&'e mut Hive<B>, B>>> {
+    pub(crate) fn next(&mut self) -> Option<Result<KeyNode<&mut Hive<B>, B>>> {
         let leaf_item_range = self.leaf_item_ranges.next()?;
         let key_node = iter_try!(KeyNode::from_leaf_item_range(
             &mut *self.hive,

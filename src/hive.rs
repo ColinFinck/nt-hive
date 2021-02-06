@@ -13,7 +13,7 @@ use zerocopy::*;
 
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
-pub(crate) struct CellHeader {
+struct CellHeader {
     size: I32<LittleEndian>,
 }
 
@@ -44,7 +44,7 @@ enum HiveFileFormats {
 #[allow(dead_code)]
 #[derive(AsBytes, FromBytes, Unaligned)]
 #[repr(packed)]
-pub(crate) struct HiveBaseBlock {
+struct HiveBaseBlock {
     signature: [u8; 4],
     primary_sequence_number: U32<LittleEndian>,
     secondary_sequence_number: U32<LittleEndian>,
@@ -71,7 +71,7 @@ pub(crate) struct HiveBaseBlock {
 }
 
 pub struct Hive<B: ByteSlice> {
-    pub(crate) base_block: LayoutVerified<B, HiveBaseBlock>,
+    base_block: LayoutVerified<B, HiveBaseBlock>,
     pub(crate) data: B,
 }
 

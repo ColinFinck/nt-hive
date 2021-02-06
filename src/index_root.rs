@@ -51,11 +51,7 @@ pub(crate) struct IndexRootItemRanges {
 }
 
 impl IndexRootItemRanges {
-    pub(crate) fn new(
-        count: u16,
-        count_field_offset: usize,
-        data_range: Range<usize>,
-    ) -> Result<Self> {
+    fn new(count: u16, count_field_offset: usize, data_range: Range<usize>) -> Result<Self> {
         let byte_count = count as usize * mem::size_of::<IndexRootItem>();
 
         let items_range = byte_subrange(&data_range, byte_count).ok_or_else(|| {
@@ -110,6 +106,12 @@ impl Iterator for IndexRootItemRanges {
 impl ExactSizeIterator for IndexRootItemRanges {}
 impl FusedIterator for IndexRootItemRanges {}
 
+impl<B: ByteSlice> From<IndexRootKeyNodes<'_, B>> for IndexRootItemRanges {
+    fn from(index_root_key_nodes: IndexRootKeyNodes<'_, B>) -> IndexRootItemRanges {
+        index_root_key_nodes.index_root_item_ranges
+    }
+}
+
 /// Iterator over
 ///   a contiguous range of data bytes containing Index Root items,
 ///   returning a constant [`KeyNode`] for each Leaf item of each Index Root item.
@@ -118,7 +120,7 @@ impl FusedIterator for IndexRootItemRanges {}
 #[derive(Clone)]
 pub struct IndexRootKeyNodes<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
-    pub(crate) index_root_item_ranges: IndexRootItemRanges,
+    index_root_item_ranges: IndexRootItemRanges,
     leaf_item_ranges: Option<LeafItemRanges>,
 }
 
@@ -204,7 +206,7 @@ where
         })
     }
 
-    pub(crate) fn next<'e>(&'e mut self) -> Option<Result<KeyNode<&'e mut Hive<B>, B>>> {
+    pub(crate) fn next(&mut self) -> Option<Result<KeyNode<&mut Hive<B>, B>>> {
         loop {
             if let Some(leaf_item_ranges) = self.leaf_item_ranges.as_mut() {
                 if let Some(leaf_item_range) = leaf_item_ranges.next() {

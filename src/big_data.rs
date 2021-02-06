@@ -68,7 +68,7 @@ struct BigDataListItemRanges {
 }
 
 impl BigDataListItemRanges {
-    pub(crate) fn new<B>(
+    fn new<B>(
         hive: &Hive<B>,
         data_size: u32,
         data_size_field_offset: usize,

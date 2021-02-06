@@ -70,13 +70,13 @@ struct KeyNodeHeader {
 
 /// Byte range of a single Key Node item.
 #[derive(Clone)]
-pub(crate) struct KeyNodeItemRange {
+struct KeyNodeItemRange {
     header_range: Range<usize>,
     data_range: Range<usize>,
 }
 
 impl KeyNodeItemRange {
-    pub fn from_cell_range<B>(hive: &Hive<B>, cell_range: Range<usize>) -> Result<Self>
+    fn from_cell_range<B>(hive: &Hive<B>, cell_range: Range<usize>) -> Result<Self>
     where
         B: ByteSlice,
     {
@@ -99,7 +99,7 @@ impl KeyNodeItemRange {
         Ok(key_node_item_range)
     }
 
-    pub fn from_leaf_item_range<B>(hive: &Hive<B>, leaf_item_range: LeafItemRange) -> Result<Self>
+    fn from_leaf_item_range<B>(hive: &Hive<B>, leaf_item_range: LeafItemRange) -> Result<Self>
     where
         B: ByteSlice,
     {
@@ -227,7 +227,7 @@ impl KeyNodeItemRange {
         LayoutVerified::new(&mut hive.data[self.header_range.clone()]).unwrap()
     }
 
-    pub fn name<'a, B>(&self, hive: &'a Hive<B>) -> Result<NtHiveNameString<'a>>
+    fn name<'a, B>(&self, hive: &'a Hive<B>) -> Result<NtHiveNameString<'a>>
     where
         B: ByteSlice,
     {
@@ -251,7 +251,7 @@ impl KeyNodeItemRange {
         }
     }
 
-    pub fn subkey<B>(&self, hive: &Hive<B>, name: &str) -> Option<Result<Self>>
+    fn subkey<B>(&self, hive: &Hive<B>, name: &str) -> Option<Result<Self>>
     where
         B: ByteSlice,
     {
@@ -260,17 +260,17 @@ impl KeyNodeItemRange {
 
         match sub_key_nodes {
             SubKeyNodes::IndexRoot(iter) => {
-                let index_root_item_ranges = iter.index_root_item_ranges;
+                let index_root_item_ranges = IndexRootItemRanges::from(iter);
                 self.binary_search_subkey_in_index_root(hive, name, index_root_item_ranges)
             }
             SubKeyNodes::Leaf(iter) => {
-                let leaf_item_ranges = iter.leaf_item_ranges;
+                let leaf_item_ranges = LeafItemRanges::from(iter);
                 self.binary_search_subkey_in_leaf(hive, name, leaf_item_ranges)
             }
         }
     }
 
-    pub fn subkeys<H, B>(&self, hive: H) -> Option<Result<SubkeysList<H, B>>>
+    fn subkeys<H, B>(&self, hive: H) -> Option<Result<SubkeysList<H, B>>>
     where
         H: Deref<Target = Hive<B>>,
         B: ByteSlice,
@@ -286,7 +286,7 @@ impl KeyNodeItemRange {
         Some(SubkeysList::new(hive, cell_range))
     }
 
-    pub fn subpath<B>(&self, hive: &Hive<B>, path: &str) -> Option<Result<Self>>
+    fn subpath<B>(&self, hive: &Hive<B>, path: &str) -> Option<Result<Self>>
     where
         B: ByteSlice,
     {
@@ -318,7 +318,7 @@ impl KeyNodeItemRange {
         }
     }
 
-    pub fn values<'a, B>(&self, hive: &'a Hive<B>) -> Option<Result<KeyValues<'a, B>>>
+    fn values<'a, B>(&self, hive: &'a Hive<B>) -> Option<Result<KeyValues<'a, B>>>
     where
         B: ByteSlice,
     {
