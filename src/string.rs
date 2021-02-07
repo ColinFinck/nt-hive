@@ -1232,7 +1232,6 @@ pub enum NtHiveNameString<'a> {
 }
 
 impl<'a> NtHiveNameString<'a> {
-    #[inline]
     fn cmp_iter<TI, OI>(mut this_iter: TI, mut other_iter: OI) -> Ordering
     where
         TI: Iterator<Item = u16>,
@@ -1265,7 +1264,6 @@ impl<'a> NtHiveNameString<'a> {
         }
     }
 
-    #[inline]
     fn cmp_str(&self, other: &str) -> Ordering {
         let other_iter = other.encode_utf16();
 
@@ -1275,7 +1273,6 @@ impl<'a> NtHiveNameString<'a> {
         }
     }
 
-    #[inline]
     fn latin1_iter(&'a self) -> impl Iterator<Item = u16> + 'a {
         match self {
             Self::Latin1(bytes) => bytes.iter().map(|byte| *byte as u16),
@@ -1283,7 +1280,6 @@ impl<'a> NtHiveNameString<'a> {
         }
     }
 
-    #[inline]
     fn utf16le_iter(&'a self) -> impl Iterator<Item = u16> + 'a {
         match self {
             Self::Latin1(_) => panic!("Called utf16le_iter for Latin1"),
@@ -1294,7 +1290,6 @@ impl<'a> NtHiveNameString<'a> {
     }
 
     /// Returns `true` if `self` has a length of zero bytes.
-    #[inline]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -1303,7 +1298,6 @@ impl<'a> NtHiveNameString<'a> {
     ///
     /// This length is in bytes, not characters! In other words,
     /// it may not be what a human considers the length of the string.
-    #[inline]
     pub const fn len(&self) -> usize {
         match self {
             Self::Latin1(bytes) => bytes.len(),
@@ -1314,7 +1308,6 @@ impl<'a> NtHiveNameString<'a> {
     /// Attempts to convert `self` to an owned `String`.
     /// Returns `Some(String)` if all characters could be converted successfully or `None` if a decoding error occurred.
     #[cfg(feature = "alloc")]
-    #[inline]
     pub fn to_string_checked(&self) -> Option<String> {
         match self {
             Self::Latin1(bytes) => {
@@ -1329,7 +1322,6 @@ impl<'a> NtHiveNameString<'a> {
 
     /// Converts `self` to an owned `String`, replacing invalid data with the replacement character (U+FFFD).
     #[cfg(feature = "alloc")]
-    #[inline]
     pub fn to_string_lossy(&self) -> String {
         match self {
             Self::Latin1(bytes) => bytes.iter().map(|byte| *byte as char).collect(),
@@ -1364,7 +1356,6 @@ impl<'a> fmt::Display for NtHiveNameString<'a> {
 }
 
 impl<'a> Ord for NtHiveNameString<'a> {
-    #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::Latin1(_), Self::Latin1(_)) => {
@@ -1387,7 +1378,6 @@ impl<'a> PartialEq for NtHiveNameString<'a> {
     /// Checks that two strings are a case-insensitive match
     /// (according to Windows' definition of case-insensitivity, which only considers the
     /// Unicode Basic Multilingual Plane).
-    #[inline]
     fn eq(&self, other: &Self) -> bool {
         let ordering = self.cmp(other);
         ordering == Ordering::Equal
@@ -1395,63 +1385,54 @@ impl<'a> PartialEq for NtHiveNameString<'a> {
 }
 
 impl<'a> PartialEq<str> for NtHiveNameString<'a> {
-    #[inline]
     fn eq(&self, other: &str) -> bool {
         self.cmp_str(other) == Ordering::Equal
     }
 }
 
 impl<'a> PartialEq<NtHiveNameString<'a>> for str {
-    #[inline]
     fn eq(&self, other: &NtHiveNameString<'a>) -> bool {
         other.cmp_str(self) == Ordering::Equal
     }
 }
 
 impl<'a> PartialEq<&str> for NtHiveNameString<'a> {
-    #[inline]
     fn eq(&self, other: &&str) -> bool {
         self.cmp_str(other) == Ordering::Equal
     }
 }
 
 impl<'a> PartialEq<NtHiveNameString<'a>> for &str {
-    #[inline]
     fn eq(&self, other: &NtHiveNameString<'a>) -> bool {
         other.cmp_str(self) == Ordering::Equal
     }
 }
 
 impl<'a> PartialOrd for NtHiveNameString<'a> {
-    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl<'a> PartialOrd<str> for NtHiveNameString<'a> {
-    #[inline]
     fn partial_cmp(&self, other: &str) -> Option<Ordering> {
         Some(self.cmp_str(other))
     }
 }
 
 impl<'a> PartialOrd<NtHiveNameString<'a>> for str {
-    #[inline]
     fn partial_cmp(&self, other: &NtHiveNameString<'a>) -> Option<Ordering> {
         Some(other.cmp_str(self))
     }
 }
 
 impl<'a> PartialOrd<&str> for NtHiveNameString<'a> {
-    #[inline]
     fn partial_cmp(&self, other: &&str) -> Option<Ordering> {
         Some(self.cmp_str(other))
     }
 }
 
 impl<'a> PartialOrd<NtHiveNameString<'a>> for &str {
-    #[inline]
     fn partial_cmp(&self, other: &NtHiveNameString<'a>) -> Option<Ordering> {
         Some(other.cmp_str(self))
     }
