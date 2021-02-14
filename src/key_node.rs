@@ -293,7 +293,10 @@ impl KeyNodeItemRange {
         let mut key_node_item_range = self.clone();
 
         for component in path.split('\\') {
-            key_node_item_range = iter_try!(key_node_item_range.subkey(hive, component)?);
+            // Just skip duplicate, leading, and trailing backslashes.
+            if !component.is_empty() {
+                key_node_item_range = iter_try!(key_node_item_range.subkey(hive, component)?);
+            }
         }
 
         Some(Ok(key_node_item_range))
