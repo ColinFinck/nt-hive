@@ -284,3 +284,46 @@ where
 
 impl<'a, B> ExactSizeIterator for BigDataSlices<'a, B> where B: ByteSlice {}
 impl<'a, B> FusedIterator for BigDataSlices<'a, B> where B: ByteSlice {}
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    #[test]
+    fn test_big_data() {
+        let testhive = crate::helpers::tests::testhive_vec();
+        let hive = Hive::new(testhive.as_ref()).unwrap();
+        let root_key_node = hive.root_key_node().unwrap();
+        let key_node = root_key_node.subkey("big-data-test").unwrap().unwrap();
+
+        // Key Value "A" should be filled with 16343 'A' bytes and still fit into a cell.
+        let key_value = key_node.value("A").unwrap().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegBinary);
+        assert_eq!(key_value.data_size(), 16343);
+
+        let expected_data = vec![b'A'; 16343];
+        let key_value_data = key_value.data().unwrap();
+        assert!(matches!(key_value_data, KeyValueData::Small(_)));
+        assert_eq!(key_value_data.into_vec().unwrap(), expected_data);
+
+        // Key Value "B" should be filled with 16344 'B' bytes and still fit into a cell.
+        let key_value = key_node.value("B").unwrap().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegBinary);
+        assert_eq!(key_value.data_size(), 16344);
+
+        let expected_data = vec![b'B'; 16344];
+        let key_value_data = key_value.data().unwrap();
+        assert!(matches!(key_value_data, KeyValueData::Small(_)));
+        assert_eq!(key_value_data.into_vec().unwrap(), expected_data);
+
+        // Key Value "C" should be filled with 16345 'C' bytes and require a Big Data structure.
+        let key_value = key_node.value("C").unwrap().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegBinary);
+        assert_eq!(key_value.data_size(), 16345);
+
+        let expected_data = vec![b'C'; 16345];
+        let key_value_data = key_value.data().unwrap();
+        assert!(matches!(key_value_data, KeyValueData::Big(_)));
+        assert_eq!(key_value_data.into_vec().unwrap(), expected_data);
+    }
+}

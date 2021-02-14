@@ -467,3 +467,129 @@ where
         self.item_range.subkeys(&mut self.hive)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    #[test]
+    fn test_character_encoding() {
+        let testhive = crate::helpers::tests::testhive_vec();
+        let hive = Hive::new(testhive.as_ref()).unwrap();
+        let root_key_node = hive.root_key_node().unwrap();
+        let key_node = root_key_node
+            .subkey("character-encoding-test")
+            .unwrap()
+            .unwrap();
+
+        // Prove that Latin1 characters are always stored with 1 byte per character.
+        let subkey = key_node.subkey("äöü").unwrap().unwrap();
+        assert!(matches!(
+            subkey.name().unwrap(),
+            NtHiveNameString::Latin1(&[0xe4, 0xf6, 0xfc])
+        ));
+
+        // Prove that all characters of the Unicode Basic Multilingual Plane are compared case-insensitively
+        // by trying to find both "Full-Width Uppercase A" (U+FF21) and "Full-Width Lowercase A" (U+FF41),
+        // and ending up with the same subkeys.
+        let subkey1 = key_node.subkey("Ａ").unwrap().unwrap();
+        let subkey2 = key_node.subkey("ａ").unwrap().unwrap();
+        assert!(subkey1 == subkey2);
+
+        // Prove that this isn't the case outside the Unicode Basic Multilingual Plane
+        // by trying the same for "Deseret Uppercase H" (U+10410) and "Deseret Lowercase H" (U+10438).
+        let subkey1 = key_node.subkey("𐐐").unwrap().unwrap();
+        let subkey2 = key_node.subkey("𐐸").unwrap().unwrap();
+        assert!(subkey1 != subkey2);
+    }
+
+    #[test]
+    fn test_subkey() {
+        // Prove that our binary search algorithm finds every subkey of "subkey-test".
+        let testhive = crate::helpers::tests::testhive_vec();
+        let hive = Hive::new(testhive.as_ref()).unwrap();
+        let root_key_node = hive.root_key_node().unwrap();
+        let key_node = root_key_node.subkey("subkey-test").unwrap().unwrap();
+
+        for i in 0..512 {
+            let subkey_name = format!("key{}", i);
+            assert!(
+                matches!(key_node.subkey(&subkey_name), Some(Ok(_))),
+                "Could not find subkey \"{}\"",
+                subkey_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_subkeys() {
+        // Keep in mind that subkeys in the hive are sorted like key0, key1, key10, key11, ...
+        // We can create the same order by adding them to a vector and sorting that vector.
+        let mut key_names = Vec::with_capacity(512);
+        for i in 0..512 {
+            key_names.push(format!("key{}", i));
+        }
+
+        key_names.sort_unstable();
+
+        // Iterate through subkeys of "subkey-test" and prove that they are sorted just like our vector.
+        let testhive = crate::helpers::tests::testhive_vec();
+        let hive = Hive::new(testhive.as_ref()).unwrap();
+        let root_key_node = hive.root_key_node().unwrap();
+        let key_node = root_key_node.subkey("subkey-test").unwrap().unwrap();
+
+        let subkeys = key_node.subkeys().unwrap().unwrap();
+
+        for (subkey, expected_key_name) in subkeys.iter().unwrap().zip(key_names.iter()) {
+            let subkey = subkey.unwrap();
+            assert_eq!(subkey.name().unwrap(), expected_key_name.as_str());
+        }
+    }
+
+    #[test]
+    fn test_subpath() {
+        let testhive = crate::helpers::tests::testhive_vec();
+        let hive = Hive::new(testhive.as_ref()).unwrap();
+        let root_key_node = hive.root_key_node().unwrap();
+        let key_node = root_key_node.subkey("subpath-test").unwrap().unwrap();
+
+        assert!(matches!(key_node.subpath("no-subkeys"), Some(Ok(_))));
+        assert!(matches!(key_node.subpath("\\no-subkeys"), Some(Ok(_))));
+        assert!(matches!(key_node.subpath("no-subkeys\\"), Some(Ok(_))));
+        assert!(matches!(key_node.subpath("\\no-subkeys\\"), Some(Ok(_))));
+        assert!(matches!(key_node.subpath("no-subkeys\\non-existing"), None));
+
+        assert!(matches!(
+            key_node.subpath("with-single-level-subkey"),
+            Some(Ok(_))
+        ));
+        assert!(matches!(
+            key_node.subpath("with-single-level-subkey\\subkey"),
+            Some(Ok(_))
+        ));
+        assert!(matches!(
+            key_node.subpath("with-single-level-subkey\\\\subkey"),
+            Some(Ok(_))
+        ));
+        assert!(matches!(
+            key_node.subpath("with-single-level-subkey\\\\subkey\\"),
+            Some(Ok(_))
+        ));
+        assert!(matches!(
+            key_node.subpath("with-single-level-subkey\\subkey\\non-existing-too"),
+            None
+        ));
+
+        assert!(matches!(
+            key_node.subpath("with-two-levels-of-subkeys\\subkey1\\subkey2"),
+            Some(Ok(_))
+        ));
+        assert!(matches!(
+            key_node.subpath("with-two-levels-of-subkeys\\subkey1\\\\subkey2"),
+            Some(Ok(_))
+        ));
+
+        assert!(matches!(key_node.subpath("non-existing"), None));
+        assert!(matches!(key_node.subpath("non-existing\\sub"), None));
+    }
+}

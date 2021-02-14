@@ -361,3 +361,17 @@ where
         KeyNode::from_cell_range(self, cell_range)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    #[test]
+    fn test_clear_volatile_subkeys() {
+        // clear_volatile_subkeys traverses all subkeys, so this test just checks
+        // that it doesn't crash during that process.
+        let mut testhive = crate::helpers::tests::testhive_vec();
+        let mut hive = Hive::new(testhive.as_mut()).unwrap();
+        assert!(hive.clear_volatile_subkeys().is_ok());
+    }
+}

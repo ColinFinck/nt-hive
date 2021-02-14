@@ -448,3 +448,68 @@ where
 }
 
 impl<B> Eq for KeyValue<&Hive<B>, B> where B: ByteSlice {}
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    #[test]
+    fn test_data() {
+        // Get Key Values of all data types we support and prove that we correctly
+        // read their data.
+        let testhive = crate::helpers::tests::testhive_vec();
+        let hive = Hive::new(testhive.as_ref()).unwrap();
+        let root_key_node = hive.root_key_node().unwrap();
+        let key_node = root_key_node.subkey("data-test").unwrap().unwrap();
+
+        let key_value = key_node.value("reg-sz").unwrap().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegSZ);
+        assert_eq!(key_value.string_data().unwrap(), "sz-test");
+
+        let key_value = key_node
+            .value("reg-sz-with-terminating-nul")
+            .unwrap()
+            .unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegSZ);
+        assert_eq!(key_value.string_data().unwrap(), "sz-test");
+
+        let key_value = key_node.value("reg-expand-sz").unwrap().unwrap();
+        assert_eq!(
+            key_value.data_type().unwrap(),
+            KeyValueDataType::RegExpandSZ
+        );
+        assert_eq!(key_value.string_data().unwrap(), "sz-test");
+
+        let key_value = key_node.value("reg-multi-sz").unwrap().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegMultiSZ);
+        assert_eq!(
+            key_value.multi_string_data().unwrap(),
+            vec!["multi-sz-test", "line2"]
+        );
+
+        let key_value = key_node.value("dword").unwrap().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegDWord);
+        assert_eq!(key_value.dword_data().unwrap(), 42);
+
+        // offreg-testhive-writer has stored the same bytes representing '42' in
+        // little-endian for the big-endian case.
+        // Thus, we must get a numeric value of 42 << 24 = 704643072 after
+        // interpreting the same bytes as a big-endian value.
+        let key_value = key_node.value("dword-big-endian").unwrap().unwrap();
+        assert_eq!(
+            key_value.data_type().unwrap(),
+            KeyValueDataType::RegDWordBigEndian
+        );
+        assert_eq!(key_value.dword_data().unwrap(), 42 << 24);
+
+        let key_value = key_node.value("qword").unwrap().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegQWord);
+        assert_eq!(key_value.qword_data().unwrap(), u64::MAX);
+
+        let key_value = key_node.value("binary").unwrap().unwrap();
+        let key_value_data = key_value.data().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegBinary);
+        assert!(matches!(key_value_data, KeyValueData::Small(_)));
+        assert_eq!(key_value_data.into_vec().unwrap(), vec![1, 2, 3, 4, 5]);
+    }
+}

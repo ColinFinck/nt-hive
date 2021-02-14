@@ -29,3 +29,18 @@ pub(crate) fn byte_subrange(range: &Range<usize>, byte_count: usize) -> Option<R
 
     Some(range.start..subrange_end)
 }
+
+#[cfg(test)]
+pub mod tests {
+    use std::fs::File;
+    use std::io::Read;
+
+    pub fn testhive_vec() -> Vec<u8> {
+        let mut buffer = Vec::new();
+        File::open("testdata/testhive")
+            .unwrap()
+            .read_to_end(&mut buffer)
+            .unwrap();
+        buffer
+    }
+}
