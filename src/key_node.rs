@@ -5,6 +5,7 @@ use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
 use crate::hive::Hive;
 use crate::index_root::IndexRootItemRanges;
+use crate::key_value::KeyValue;
 use crate::key_values_list::KeyValues;
 use crate::leaf::{LeafItemRange, LeafItemRanges};
 use crate::string::NtHiveNameString;
@@ -321,6 +322,31 @@ impl KeyNodeItemRange {
         }
     }
 
+    fn value<'a, B>(
+        &self,
+        hive: &'a Hive<B>,
+        name: &str,
+    ) -> Option<Result<KeyValue<&'a Hive<B>, B>>>
+    where
+        B: ByteSlice,
+    {
+        let mut values = iter_try!(self.values(hive)?);
+
+        // Key Values are not sorted, so we can only iterate until we find a match.
+        values.find(|key_value| {
+            let key_value = match key_value {
+                Ok(key_value) => key_value,
+                Err(_) => return true,
+            };
+            let key_value_name = match key_value.name() {
+                Ok(name) => name,
+                Err(_) => return true,
+            };
+
+            key_value_name == name
+        })
+    }
+
     fn values<'a, B>(&self, hive: &'a Hive<B>) -> Option<Result<KeyValues<'a, B>>>
     where
         B: ByteSlice,
@@ -393,6 +419,10 @@ where
             hive: &self.hive,
             item_range,
         }))
+    }
+
+    pub fn value(&self, name: &str) -> Option<Result<KeyValue<&Hive<B>, B>>> {
+        self.item_range.value(&self.hive, name)
     }
 
     /// Returns an iterator over the values of this Key Node.
