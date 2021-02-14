@@ -11,6 +11,7 @@ use bitflags::bitflags;
 use core::convert::TryInto;
 use core::mem;
 use core::ops::{Deref, Range};
+use core::ptr;
 use memoffset::offset_of;
 use num_enum::TryFromPrimitive;
 use zerocopy::*;
@@ -434,3 +435,16 @@ where
         }
     }
 }
+
+impl<B> PartialEq for KeyValue<&Hive<B>, B>
+where
+    B: ByteSlice,
+{
+    fn eq(&self, other: &Self) -> bool {
+        ptr::eq(self.hive, other.hive)
+            && self.header_range == other.header_range
+            && self.data_range == other.data_range
+    }
+}
+
+impl<B> Eq for KeyValue<&Hive<B>, B> where B: ByteSlice {}

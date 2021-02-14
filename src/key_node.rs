@@ -15,6 +15,7 @@ use bitflags::bitflags;
 use core::cmp::Ordering;
 use core::mem;
 use core::ops::{Deref, DerefMut, Range};
+use core::ptr;
 use zerocopy::*;
 
 bitflags! {
@@ -70,7 +71,7 @@ struct KeyNodeHeader {
 }
 
 /// Byte range of a single Key Node item.
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 struct KeyNodeItemRange {
     header_range: Range<usize>,
     data_range: Range<usize>,
@@ -430,6 +431,17 @@ where
         self.item_range.values(&self.hive)
     }
 }
+
+impl<B> PartialEq for KeyNode<&Hive<B>, B>
+where
+    B: ByteSlice,
+{
+    fn eq(&self, other: &Self) -> bool {
+        ptr::eq(self.hive, other.hive) && self.item_range == other.item_range
+    }
+}
+
+impl<B> Eq for KeyNode<&Hive<B>, B> where B: ByteSlice {}
 
 impl<H, B> KeyNode<H, B>
 where
