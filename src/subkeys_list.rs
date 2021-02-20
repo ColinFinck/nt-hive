@@ -101,6 +101,14 @@ where
     }
 }
 
+/// Iterator over
+///   all subkeys of a [`KeyNode`],
+///   returning a constant [`KeyNode`] for each subkey.
+///
+/// This iterator combines [`IndexRootKeyNodes`] and [`LeafKeyNodes`].
+/// Refer to them for a more technical documentation.
+///
+/// On-Disk Signatures: `lf`, `lh`, `li`, `ri`
 #[derive(Clone)]
 pub enum SubKeyNodes<'a, B: ByteSlice> {
     IndexRoot(IndexRootKeyNodes<'a, B>),

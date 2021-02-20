@@ -413,6 +413,9 @@ where
         Some(SubKeyNodes::new(&self.hive, cell_range))
     }
 
+    /// Traverses the given subpath and returns the [`KeyNode`] of the last path element.
+    ///
+    /// Path elements must be separated by backslashes.
     pub fn subpath(&self, path: &str) -> Option<Result<KeyNode<&Hive<B>, B>>> {
         let item_range = iter_try!(self.item_range.subpath(&self.hive, path)?);
 
@@ -422,6 +425,7 @@ where
         }))
     }
 
+    /// Finds a single value by name.
     pub fn value(&self, name: &str) -> Option<Result<KeyValue<&Hive<B>, B>>> {
         self.item_range.value(&self.hive, name)
     }

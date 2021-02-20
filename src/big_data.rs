@@ -185,9 +185,12 @@ impl FusedIterator for BigDataListItemRanges {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Big Data list items,
-///   returning a constant byte slice for each item.
+///   returning a constant byte slice for each item,
+///   used by [`KeyValueData`].
 ///
 /// On-Disk Signature: `db`
+///
+/// [`KeyValueData`]: crate::key_value::KeyValueData
 #[derive(Clone)]
 pub struct BigDataSlices<'a, B: ByteSlice> {
     hive: &'a Hive<B>,

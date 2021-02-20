@@ -17,6 +17,7 @@ struct CellHeader {
     size: I32<LittleEndian>,
 }
 
+/// Known hive minor versions, returned by [`Hive::minor_version`].
 #[repr(u32)]
 pub enum HiveMinorVersions {
     WindowsNT3_1Beta = 0,
@@ -70,6 +71,7 @@ struct HiveBaseBlock {
     boot_recover: U32<LittleEndian>,
 }
 
+/// Root structure describing a registry hive.
 pub struct Hive<B: ByteSlice> {
     base_block: LayoutVerified<B, HiveBaseBlock>,
     pub(crate) data: B,
@@ -79,10 +81,8 @@ impl<B> Hive<B>
 where
     B: ByteSlice,
 {
-    /// Converts a vector of bytes to a `Hive`.
-    ///
-    /// This function calls [`validate`] on the passed bytes to check the
-    /// hive's basic block and rejects any hive that fails validation.
+    /// Creates a new `Hive` from any byte slice.
+    /// Performs basic validation and rejects any invalid hive.
     pub fn new(bytes: B) -> Result<Self> {
         let length = bytes.len();
         let (base_block, data) = LayoutVerified::new_from_prefix(bytes).ok_or_else(|| {
@@ -346,10 +346,10 @@ impl<B> Hive<B>
 where
     B: ByteSliceMut,
 {
-    /// Clear the `volatile_subkey_count` field of all key nodes recursively.
-    /// This prepares the hive for being passed to an NT kernel during boot.
+    /// Clears the `volatile_subkey_count` field of all key nodes recursively.
     ///
-    /// See https://github.com/reactos/reactos/pull/1883 for more information.
+    /// This needs to be done before passing the hive to an NT kernel during boot.
+    /// See <https://github.com/reactos/reactos/pull/1883> for more information.
     pub fn clear_volatile_subkeys(&mut self) -> Result<()> {
         let mut root_key_node = self.root_key_node_mut()?;
         root_key_node.clear_volatile_subkeys()

@@ -223,9 +223,12 @@ impl FusedIterator for LeafItemRanges {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Leaf items of any type (Fast/Hash/Index),
-///   returning a constant [`KeyNode`] for each Leaf item.
+///   returning a constant [`KeyNode`] for each Leaf item,
+///   used by [`SubKeyNodes`].
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`
+///
+/// [`SubKeyNodes`]: crate::subkeys_list::SubKeyNodes
 #[derive(Clone)]
 pub struct LeafKeyNodes<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
@@ -299,10 +302,13 @@ impl<'a, B> FusedIterator for LeafKeyNodes<'a, B> where B: ByteSlice {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Leaf items of any type (Fast/Hash/Index),
-///   returning a mutable [`KeyNode`] for each Leaf item.
+///   returning a mutable [`KeyNode`] for each Leaf item,
+///   used by [`SubKeyNodesMut`].
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`
-pub struct LeafKeyNodesMut<'a, B: ByteSliceMut> {
+///
+/// [`SubKeyNodesMut`]: crate::subkeys_list::SubKeyNodesMut
+pub(crate) struct LeafKeyNodesMut<'a, B: ByteSliceMut> {
     hive: &'a mut Hive<B>,
     leaf_item_ranges: LeafItemRanges,
 }

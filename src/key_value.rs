@@ -29,8 +29,13 @@ bitflags! {
     }
 }
 
+/// Zero-copy representation of raw Key Value data, returned by [`KeyValue::data`].
 pub enum KeyValueData<'a, B: ByteSlice> {
+    /// The data fits into a single cell.
+    /// Contains the contiguous range of data bytes.
     Small(&'a [u8]),
+    /// The data is big enough to require more than one cell.
+    /// Contains an iterator that returns the data byte slice for each cell.
     Big(BigDataSlices<'a, B>),
 }
 

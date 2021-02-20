@@ -114,9 +114,12 @@ impl<B: ByteSlice> From<IndexRootKeyNodes<'_, B>> for IndexRootItemRanges {
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Index Root items,
-///   returning a constant [`KeyNode`] for each Leaf item of each Index Root item.
+///   returning a constant [`KeyNode`] for each Leaf item of each Index Root item,
+///   used by [`SubKeyNodes`]
 ///
 /// On-Disk Signature: `ri`
+///
+/// [`SubKeyNodes`]: crate::subkeys_list::SubKeyNodes
 #[derive(Clone)]
 pub struct IndexRootKeyNodes<'a, B: ByteSlice> {
     hive: &'a Hive<B>,
@@ -177,9 +180,12 @@ impl<'a, B> FusedIterator for IndexRootKeyNodes<'a, B> where B: ByteSlice {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Index Root items,
-///   returning a mutable [`KeyNode`] for each Leaf item of each Index Root item.
+///   returning a mutable [`KeyNode`] for each Leaf item of each Index Root item,
+///   used by [`SubKeyNodesMut`].
 ///
 /// On-Disk Signature: `ri`
+///
+/// [`SubKeyNodesMut`]: crate::subkeys_list::SubKeyNodesMut
 pub(crate) struct IndexRootKeyNodesMut<'a, B: ByteSliceMut> {
     hive: &'a mut Hive<B>,
     index_root_item_ranges: IndexRootItemRanges,
