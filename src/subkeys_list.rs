@@ -10,7 +10,7 @@ use crate::leaf::{LeafKeyNodes, LeafKeyNodesMut, LeafType};
 use ::byteorder::LittleEndian;
 use core::iter::FusedIterator;
 use core::mem;
-use core::ops::{Deref, DerefMut, Range};
+use core::ops::{Deref, Range};
 use zerocopy::*;
 
 /// On-Disk Structure of a Subkeys List header.
@@ -26,7 +26,7 @@ pub(crate) struct SubkeysListHeader {
 ///
 /// A Subkeys List generalizes over all structures used to manage subkeys.
 /// These are: Fast Leaf (`lf`), Hash Leaf (`lh`), Index Leaf (`li`), Index Root (`ri`).
-pub struct SubkeysList<H: Deref<Target = Hive<B>>, B: ByteSlice> {
+pub(crate) struct SubkeysList<H: Deref<Target = Hive<B>>, B: ByteSlice> {
     hive: H,
     header_range: Range<usize>,
     pub(crate) data_range: Range<usize>,
@@ -69,39 +69,6 @@ where
         LayoutVerified::new(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
-    /// Returns an iterator over the subkeys of the associated [`KeyNode`].
-    pub fn iter(&self) -> Result<SubKeyNodes<B>> {
-        let header = self.header();
-        let count = header.count.get();
-        let count_field_offset = self.hive.offset_of_field(&header.count);
-
-        match &header.signature {
-            b"lf" | b"lh" | b"li" => {
-                // Fast Leaf, Hash Leaf or Index Leaf
-                let leaf_type = LeafType::from_signature(&header.signature).unwrap();
-                let iter = LeafKeyNodes::new(
-                    &self.hive,
-                    count,
-                    count_field_offset,
-                    self.data_range.clone(),
-                    leaf_type,
-                )?;
-                Ok(SubKeyNodes::Leaf(iter))
-            }
-            b"ri" => {
-                // Index Root
-                let iter = IndexRootKeyNodes::new(
-                    &self.hive,
-                    count,
-                    count_field_offset,
-                    self.data_range.clone(),
-                )?;
-                Ok(SubKeyNodes::IndexRoot(iter))
-            }
-            _ => unreachable!(),
-        }
-    }
-
     fn validate_signature(&self, index_root_supported: bool) -> Result<()> {
         let header = self.header();
 
@@ -134,57 +101,40 @@ where
     }
 }
 
-impl<H, B> SubkeysList<H, B>
-where
-    H: DerefMut<Target = Hive<B>>,
-    B: ByteSliceMut,
-{
-    /// Returns an iterator over the subkeys of the associated [`KeyNode`] that allows modifications.
-    pub(crate) fn iter_mut(&mut self) -> Result<SubKeyNodesMut<B>> {
-        let header = self.header();
-        let count = header.count.get();
-        let count_field_offset = self.hive.offset_of_field(&header.count);
-
-        match &header.signature {
-            b"lf" | b"lh" | b"li" => {
-                // Fast Leaf, Hash Leaf or Index Leaf
-                let leaf_type = LeafType::from_signature(&header.signature).unwrap();
-                let iter = LeafKeyNodesMut::new(
-                    &mut self.hive,
-                    count,
-                    count_field_offset,
-                    self.data_range.clone(),
-                    leaf_type,
-                )?;
-                Ok(SubKeyNodesMut::Leaf(iter))
-            }
-            b"ri" => {
-                // Index Root
-                let iter = IndexRootKeyNodesMut::new(
-                    &mut self.hive,
-                    count,
-                    count_field_offset,
-                    self.data_range.clone(),
-                )?;
-                Ok(SubKeyNodesMut::IndexRoot(iter))
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-/// Iterator over
-///   all subkeys of a [`KeyNode`],
-///   returning a constant [`KeyNode`] for each subkey.
-///
-/// This iterator combines [`IndexRootKeyNodes`] and [`LeafKeyNodes`].
-/// Refer to them for a more technical documentation.
-///
-/// On-Disk Signatures: `lf`, `lh`, `li`, `ri`
 #[derive(Clone)]
 pub enum SubKeyNodes<'a, B: ByteSlice> {
     IndexRoot(IndexRootKeyNodes<'a, B>),
     Leaf(LeafKeyNodes<'a, B>),
+}
+
+impl<'a, B> SubKeyNodes<'a, B>
+where
+    B: ByteSlice,
+{
+    pub(crate) fn new(hive: &'a Hive<B>, cell_range: Range<usize>) -> Result<Self> {
+        let subkeys_list = SubkeysList::new(&*hive, cell_range)?;
+        let header = subkeys_list.header();
+        let signature = header.signature;
+        let count = header.count.get();
+        let count_field_offset = subkeys_list.hive.offset_of_field(&header.count);
+        let data_range = subkeys_list.data_range;
+
+        match &signature {
+            b"lf" | b"lh" | b"li" => {
+                // Fast Leaf, Hash Leaf or Index Leaf
+                let leaf_type = LeafType::from_signature(&signature).unwrap();
+                let iter =
+                    LeafKeyNodes::new(hive, count, count_field_offset, data_range, leaf_type)?;
+                Ok(Self::Leaf(iter))
+            }
+            b"ri" => {
+                // Index Root
+                let iter = IndexRootKeyNodes::new(hive, count, count_field_offset, data_range)?;
+                Ok(Self::IndexRoot(iter))
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl<'a, B> Iterator for SubKeyNodes<'a, B>
@@ -248,6 +198,31 @@ impl<'a, B> SubKeyNodesMut<'a, B>
 where
     B: ByteSliceMut,
 {
+    pub(crate) fn new(hive: &'a mut Hive<B>, cell_range: Range<usize>) -> Result<Self> {
+        let subkeys_list = SubkeysList::new(&*hive, cell_range)?;
+        let header = subkeys_list.header();
+        let signature = header.signature;
+        let count = header.count.get();
+        let count_field_offset = subkeys_list.hive.offset_of_field(&header.count);
+        let data_range = subkeys_list.data_range;
+
+        match &signature {
+            b"lf" | b"lh" | b"li" => {
+                // Fast Leaf, Hash Leaf or Index Leaf
+                let leaf_type = LeafType::from_signature(&signature).unwrap();
+                let iter =
+                    LeafKeyNodesMut::new(hive, count, count_field_offset, data_range, leaf_type)?;
+                Ok(Self::Leaf(iter))
+            }
+            b"ri" => {
+                // Index Root
+                let iter = IndexRootKeyNodesMut::new(hive, count, count_field_offset, data_range)?;
+                Ok(Self::IndexRoot(iter))
+            }
+            _ => unreachable!(),
+        }
+    }
+
     pub fn next(&mut self) -> Option<Result<KeyNode<&mut Hive<B>, B>>> {
         match self {
             Self::IndexRoot(iter) => iter.next(),

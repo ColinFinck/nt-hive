@@ -9,7 +9,7 @@ use crate::key_value::KeyValue;
 use crate::key_values_list::KeyValues;
 use crate::leaf::{LeafItemRange, LeafItemRanges};
 use crate::string::NtHiveNameString;
-use crate::subkeys_list::{SubKeyNodes, SubkeysList};
+use crate::subkeys_list::{SubKeyNodes, SubKeyNodesMut};
 use ::byteorder::LittleEndian;
 use bitflags::bitflags;
 use core::cmp::Ordering;
@@ -257,10 +257,10 @@ impl KeyNodeItemRange {
     where
         B: ByteSlice,
     {
-        let subkeys = iter_try!(self.subkeys(hive)?);
-        let sub_key_nodes = iter_try!(subkeys.iter());
+        let cell_range = iter_try!(self.subkeys_cell_range(hive)?);
+        let subkeys = iter_try!(SubKeyNodes::new(hive, cell_range));
 
-        match sub_key_nodes {
+        match subkeys {
             SubKeyNodes::IndexRoot(iter) => {
                 let index_root_item_ranges = IndexRootItemRanges::from(iter);
                 self.binary_search_subkey_in_index_root(hive, name, index_root_item_ranges)
@@ -272,9 +272,8 @@ impl KeyNodeItemRange {
         }
     }
 
-    fn subkeys<H, B>(&self, hive: H) -> Option<Result<SubkeysList<H, B>>>
+    fn subkeys_cell_range<B>(&self, hive: &Hive<B>) -> Option<Result<Range<usize>>>
     where
-        H: Deref<Target = Hive<B>>,
         B: ByteSlice,
     {
         let header = self.header(&hive);
@@ -285,7 +284,7 @@ impl KeyNodeItemRange {
         }
 
         let cell_range = iter_try!(hive.cell_range_from_data_offset(subkeys_list_offset));
-        Some(SubkeysList::new(hive, cell_range))
+        Some(Ok(cell_range))
     }
 
     fn subpath<B>(&self, hive: &Hive<B>, path: &str) -> Option<Result<Self>>
@@ -398,7 +397,7 @@ where
         self.item_range.name(&self.hive)
     }
 
-    /// Finds a single subkey using efficient binary search.
+    /// Finds a single subkey by name using efficient binary search.
     pub fn subkey(&self, name: &str) -> Option<Result<KeyNode<&Hive<B>, B>>> {
         let item_range = iter_try!(self.item_range.subkey(&self.hive, name)?);
 
@@ -408,9 +407,10 @@ where
         }))
     }
 
-    /// Returns a [`SubkeysList`] structure representing the subkeys of this Key Node.
-    pub fn subkeys(&self) -> Option<Result<SubkeysList<&Hive<B>, B>>> {
-        self.item_range.subkeys(&self.hive)
+    /// Returns an iterator over the subkeys of this Key Node.
+    pub fn subkeys(&self) -> Option<Result<SubKeyNodes<B>>> {
+        let cell_range = iter_try!(self.item_range.subkeys_cell_range(&self.hive)?);
+        Some(SubKeyNodes::new(&self.hive, cell_range))
     }
 
     pub fn subpath(&self, path: &str) -> Option<Result<KeyNode<&Hive<B>, B>>> {
@@ -452,10 +452,9 @@ where
         let mut header = self.item_range.header_mut(&mut self.hive);
         header.volatile_subkey_count.set(0);
 
-        if let Some(subkeys_result) = self.subkeys_mut() {
-            let mut subkeys = subkeys_result?;
-            let mut iter = subkeys.iter_mut()?;
-            while let Some(subkey) = iter.next() {
+        if let Some(subkeys) = self.subkeys_mut() {
+            let mut subkeys = subkeys?;
+            while let Some(subkey) = subkeys.next() {
                 subkey?.clear_volatile_subkeys()?;
             }
         }
@@ -463,8 +462,9 @@ where
         Ok(())
     }
 
-    pub(crate) fn subkeys_mut(&mut self) -> Option<Result<SubkeysList<&mut Hive<B>, B>>> {
-        self.item_range.subkeys(&mut self.hive)
+    pub(crate) fn subkeys_mut(&mut self) -> Option<Result<SubKeyNodesMut<B>>> {
+        let cell_range = iter_try!(self.item_range.subkeys_cell_range(&self.hive)?);
+        Some(SubKeyNodesMut::new(&mut self.hive, cell_range))
     }
 }
 
@@ -540,7 +540,7 @@ mod tests {
 
         let subkeys = key_node.subkeys().unwrap().unwrap();
 
-        for (subkey, expected_key_name) in subkeys.iter().unwrap().zip(key_names.iter()) {
+        for (subkey, expected_key_name) in subkeys.zip(key_names.iter()) {
             let subkey = subkey.unwrap();
             assert_eq!(subkey.name().unwrap(), expected_key_name.as_str());
         }

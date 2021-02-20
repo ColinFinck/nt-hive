@@ -49,11 +49,8 @@ where
     // Print the names of subkeys of this node.
     if let Some(subkeys) = key_node.subkeys() {
         let subkeys = subkeys.map_err(|e| format!("Error getting subkeys: {}", e))?;
-        let subkey_iter = subkeys
-            .iter()
-            .map_err(|e| format!("Error creating subkey iterator: {}", e))?;
 
-        for key_node in subkey_iter {
+        for key_node in subkeys {
             let key_node = key_node.map_err(|e| format!("Error enumerating key: {}", e))?;
             let key_name = key_node
                 .name()
