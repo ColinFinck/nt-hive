@@ -14,7 +14,7 @@ categories = ["no-std", "os::windows-apis", "parser-implementations"]
 
 [dependencies]
 bitflags = "1.2.1"
-byteorder = { version = "1.3.4", default-features = false }
+byteorder = { version = "1.4.2", default-features = false }
 displaydoc = { version = "0.1.7", default-features = false }
 enumn = "0.1.3"
 memoffset = "0.6.1"
