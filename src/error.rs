@@ -9,7 +9,7 @@ use crate::key_value::KeyValueDataType;
 pub type Result<T, E = NtHiveError> = core::result::Result<T, E>;
 
 /// Central error type of nt-hive.
-#[derive(Debug, Display)]
+#[derive(Clone, Debug, Display)]
 pub enum NtHiveError {
     /// The checksum in the base block should be {expected}, but it is {actual}
     InvalidChecksum { expected: u32, actual: u32 },

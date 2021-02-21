@@ -30,6 +30,7 @@ bitflags! {
 }
 
 /// Zero-copy representation of raw Key Value data, returned by [`KeyValue::data`].
+#[derive(Clone)]
 pub enum KeyValueData<'a, B: ByteSlice> {
     /// The data fits into a single cell.
     /// Contains the contiguous range of data bytes.
@@ -99,6 +100,7 @@ struct KeyValueHeader {
 /// On-Disk Signature: `vk`
 ///
 /// [`KeyNode`]: crate::key_node::KeyNode
+#[derive(Clone)]
 pub struct KeyValue<H: Deref<Target = Hive<B>>, B: ByteSlice> {
     hive: H,
     header_range: Range<usize>,

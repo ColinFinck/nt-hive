@@ -372,6 +372,7 @@ impl KeyNodeItemRange {
 /// On-Disk Signature: `nk`
 ///
 /// [`KeyValue`]: crate::key_value::KeyValue
+#[derive(Clone)]
 pub struct KeyNode<H: Deref<Target = Hive<B>>, B: ByteSlice> {
     hive: H,
     item_range: KeyNodeItemRange,

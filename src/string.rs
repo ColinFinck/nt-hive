@@ -1220,7 +1220,7 @@ fn utf16_code_unit_to_uppercase(unit: u16) -> u16 {
 /// This allows to work with the string without performing any allocations or conversions.
 /// If the `alloc` feature is enabled, [`to_string_checked`](NtHiveNameString::to_string_checked) and
 /// [`to_string_lossy`](NtHiveNameString::to_string_lossy) can be used to to retrieve a `String`.
-#[derive(Debug, Eq)]
+#[derive(Clone, Debug, Eq)]
 pub enum NtHiveNameString<'a> {
     /// A byte stream where each byte is a single character of the Latin1 (ISO-8859-1)
     /// character set.
