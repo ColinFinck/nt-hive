@@ -8,6 +8,7 @@ use ::byteorder::LittleEndian;
 use core::convert::TryInto;
 use core::ops::Range;
 use core::{mem, u32};
+use enumn::N;
 use memoffset::offset_of;
 use zerocopy::*;
 
@@ -17,9 +18,13 @@ struct CellHeader {
     size: I32<LittleEndian>,
 }
 
-/// Known hive minor versions, returned by [`Hive::minor_version`].
+/// Known hive minor versions.
+///
+/// You can use [`HiveMinorVersion::n`] on the value returned by [`Hive::minor_version`]
+/// to find out whether a hive has a known version.
+#[derive(Clone, Copy, Debug, Eq, N, Ord, PartialEq, PartialOrd)]
 #[repr(u32)]
-pub enum HiveMinorVersions {
+pub enum HiveMinorVersion {
     WindowsNT3_1Beta = 0,
     WindowsNT3_1 = 1,
     WindowsNT3_5 = 2,
@@ -180,7 +185,7 @@ where
 
     /// Returns the minor version of this hive.
     ///
-    /// Known values can be found in [`HiveMinorVersions`].
+    /// You can feed this value to [`HiveMinorVersion::n`] to find out whether this is a known version.
     pub fn minor_version(&self) -> u32 {
         self.base_block.minor_version.get()
     }
@@ -334,7 +339,7 @@ where
         let major = self.major_version();
         let minor = self.minor_version();
 
-        if major == 1 && minor >= HiveMinorVersions::WindowsNT4 as u32 {
+        if major == 1 && minor >= HiveMinorVersion::WindowsNT4 as u32 {
             Ok(())
         } else {
             Err(NtHiveError::UnsupportedVersion { major, minor })

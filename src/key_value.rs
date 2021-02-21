@@ -12,8 +12,8 @@ use core::convert::TryInto;
 use core::mem;
 use core::ops::{Deref, Range};
 use core::ptr;
+use enumn::N;
 use memoffset::offset_of;
-use num_enum::TryFromPrimitive;
 use zerocopy::*;
 
 #[cfg(feature = "alloc")]
@@ -62,7 +62,7 @@ where
 }
 
 /// Possible data types of the data belonging to a [`KeyValue`].
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Clone, Copy, Debug, Eq, N, PartialEq)]
 #[repr(u32)]
 pub enum KeyValueDataType {
     RegNone = 0x0000_0000,
@@ -394,12 +394,12 @@ where
         let header = self.header();
         let data_type_code = header.data_type.get();
 
-        data_type_code
-            .try_into()
-            .map_err(|_| NtHiveError::UnsupportedKeyValueDataType {
+        KeyValueDataType::n(data_type_code).ok_or_else(|| {
+            NtHiveError::UnsupportedKeyValueDataType {
                 offset: self.hive.offset_of_field(&header.data_type),
                 actual: data_type_code,
-            })
+            }
+        })
     }
 
     /// Returns the name of this Key Value.
