@@ -2,9 +2,15 @@
 name = "nt-hive"
 version = "0.1.0"
 authors = ["Colin Finck <colin@reactos.org>"]
+description = "Access keys, values, and data stored in Windows hive (registry) files"
+homepage = "https://github.com/ColinFinck/nt-hive"
+repository = "https://github.com/ColinFinck/nt-hive"
+documentation = "https://docs.rs/nt-hive"
+readme = "README.md"
 edition = "2018"
 license = "GPL-2.0-or-later"
-keywords = ["windows", "nt", "registry", "hive", "regf", "no_std"]
+keywords = ["windows", "nt", "registry", "hive", "regf"]
+categories = ["no-std", "os::windows-apis", "parser-implementations"]
 
 [dependencies]
 bitflags = "1.2.1"
