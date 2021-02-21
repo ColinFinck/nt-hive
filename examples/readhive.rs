@@ -24,11 +24,7 @@ fn main() -> Result<(), String> {
         .map_err(|e| format!("Error reading hive file: {}", e))?;
 
     // Parse the hive.
-    let mut hive =
-        Hive::new(buffer.as_mut()).map_err(|e| format!("Error parsing hive file: {}", e))?;
-
-    // Only supported mutable action: Clear the volatile subkeys recursively.
-    hive.clear_volatile_subkeys().unwrap();
+    let hive = Hive::new(buffer.as_ref()).map_err(|e| format!("Error parsing hive file: {}", e))?;
 
     // Print the name of the root key node.
     let root_key = hive
