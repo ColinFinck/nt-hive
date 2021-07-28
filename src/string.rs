@@ -1264,12 +1264,21 @@ impl<'a> NtHiveNameString<'a> {
         }
     }
 
-    fn cmp_str(&self, other: &str) -> Ordering {
-        let other_iter = other.encode_utf16();
+    fn cmp_self_and_str(lhs: &Self, rhs: &str) -> Ordering {
+        let rhs_iter = rhs.encode_utf16();
 
-        match self {
-            Self::Latin1(_) => Self::cmp_iter(self.latin1_iter(), other_iter),
-            Self::Utf16LE(_) => Self::cmp_iter(self.utf16le_iter(), other_iter),
+        match lhs {
+            Self::Latin1(_) => Self::cmp_iter(lhs.latin1_iter(), rhs_iter),
+            Self::Utf16LE(_) => Self::cmp_iter(lhs.utf16le_iter(), rhs_iter),
+        }
+    }
+
+    fn cmp_str_and_self(lhs: &str, rhs: &Self) -> Ordering {
+        let lhs_iter = lhs.encode_utf16();
+
+        match rhs {
+            Self::Latin1(_) => Self::cmp_iter(lhs_iter, rhs.latin1_iter()),
+            Self::Utf16LE(_) => Self::cmp_iter(lhs_iter, rhs.utf16le_iter()),
         }
     }
 
@@ -1386,25 +1395,25 @@ impl<'a> PartialEq for NtHiveNameString<'a> {
 
 impl<'a> PartialEq<str> for NtHiveNameString<'a> {
     fn eq(&self, other: &str) -> bool {
-        self.cmp_str(other) == Ordering::Equal
+        NtHiveNameString::cmp_self_and_str(self, other) == Ordering::Equal
     }
 }
 
 impl<'a> PartialEq<NtHiveNameString<'a>> for str {
     fn eq(&self, other: &NtHiveNameString<'a>) -> bool {
-        other.cmp_str(self) == Ordering::Equal
+        NtHiveNameString::cmp_str_and_self(self, other) == Ordering::Equal
     }
 }
 
 impl<'a> PartialEq<&str> for NtHiveNameString<'a> {
     fn eq(&self, other: &&str) -> bool {
-        self.cmp_str(other) == Ordering::Equal
+        NtHiveNameString::cmp_self_and_str(self, other) == Ordering::Equal
     }
 }
 
 impl<'a> PartialEq<NtHiveNameString<'a>> for &str {
     fn eq(&self, other: &NtHiveNameString<'a>) -> bool {
-        other.cmp_str(self) == Ordering::Equal
+        NtHiveNameString::cmp_str_and_self(self, other) == Ordering::Equal
     }
 }
 
@@ -1416,25 +1425,25 @@ impl<'a> PartialOrd for NtHiveNameString<'a> {
 
 impl<'a> PartialOrd<str> for NtHiveNameString<'a> {
     fn partial_cmp(&self, other: &str) -> Option<Ordering> {
-        Some(self.cmp_str(other))
+        Some(NtHiveNameString::cmp_self_and_str(self, other))
     }
 }
 
 impl<'a> PartialOrd<NtHiveNameString<'a>> for str {
     fn partial_cmp(&self, other: &NtHiveNameString<'a>) -> Option<Ordering> {
-        Some(other.cmp_str(self))
+        Some(NtHiveNameString::cmp_str_and_self(self, other))
     }
 }
 
 impl<'a> PartialOrd<&str> for NtHiveNameString<'a> {
     fn partial_cmp(&self, other: &&str) -> Option<Ordering> {
-        Some(self.cmp_str(other))
+        Some(NtHiveNameString::cmp_self_and_str(self, other))
     }
 }
 
 impl<'a> PartialOrd<NtHiveNameString<'a>> for &str {
     fn partial_cmp(&self, other: &NtHiveNameString<'a>) -> Option<Ordering> {
-        Some(other.cmp_str(self))
+        Some(NtHiveNameString::cmp_str_and_self(self, other))
     }
 }
 
@@ -1511,6 +1520,9 @@ mod tests {
 
     #[test]
     fn test_ord() {
+        assert!(NtHiveNameString::Latin1(b"a") < "b");
+        assert!("b" > NtHiveNameString::Latin1(b"a"));
+
         assert!(NtHiveNameString::Latin1(b"a") == NtHiveNameString::Latin1(b"a"));
         assert!(NtHiveNameString::Latin1(b"a") < NtHiveNameString::Latin1(b"aa"));
         assert!(NtHiveNameString::Latin1(b"aa") > NtHiveNameString::Latin1(b"a"));
