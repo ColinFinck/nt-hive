@@ -1388,8 +1388,7 @@ impl<'a> PartialEq for NtHiveNameString<'a> {
     /// (according to Windows' definition of case-insensitivity, which only considers the
     /// Unicode Basic Multilingual Plane).
     fn eq(&self, other: &Self) -> bool {
-        let ordering = self.cmp(other);
-        ordering == Ordering::Equal
+        self.cmp(other) == Ordering::Equal
     }
 }
 
