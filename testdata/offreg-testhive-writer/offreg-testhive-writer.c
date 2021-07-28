@@ -113,7 +113,10 @@ static void _WriteSubkeyTest(ORHKEY hKey)
     // Create enough subkeys for the Offline Registry Library to generate an Index Root.
     for (int i = 0; i < 512; i++)
     {
-        swprintf_s(wszKeyName, _countof(wszKeyName), L"key%d", i);
+        // Prove that we can find all subkeys no matter the letter case.
+        const char FirstLetter = (i % 2 == 0) ? 'K' : 'k';
+
+        swprintf_s(wszKeyName, _countof(wszKeyName), L"%cey%d", FirstLetter, i);
         pfnORCreateKey(hKey, wszKeyName, NULL, REG_OPTION_NON_VOLATILE, NULL, &hSubKey, NULL);
         pfnORCloseKey(hSubKey);
     }
