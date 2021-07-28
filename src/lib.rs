@@ -13,6 +13,7 @@
 //! 4. Get an interesting value using [`KeyNode::value`] or [`KeyNode::values`].
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![forbid(unsafe_code)]
 
 #[macro_use]
 mod helpers;
