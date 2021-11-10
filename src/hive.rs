@@ -82,7 +82,20 @@ where
 {
     /// Creates a new `Hive` from any byte slice.
     /// Performs basic validation and rejects any invalid hive.
+    ///
+    /// You may use [`Hive::without_validation`] if you want to accept hives that fail validation.
     pub fn new(bytes: B) -> Result<Self> {
+        let hive = Self::without_validation(bytes)?;
+        hive.validate()?;
+        Ok(hive)
+    }
+
+    /// Creates a new `Hive` from any byte slice, without validating the header.
+    ///
+    /// You may later validate the header via [`Hive::validate`].
+    /// This is a solution for accessing parts of hives that have not been fully flushed to disk
+    /// (e.g. due to hibernation and mismatching sequence numbers).
+    pub fn without_validation(bytes: B) -> Result<Self> {
         let length = bytes.len();
         let (base_block, data) = LayoutVerified::new_from_prefix(bytes).ok_or_else(|| {
             NtHiveError::InvalidHeaderSize {
@@ -93,8 +106,6 @@ where
         })?;
 
         let hive = Self { base_block, data };
-        hive.validate()?;
-
         Ok(hive)
     }
 
@@ -191,8 +202,11 @@ where
         KeyNode::from_cell_range(self, cell_range)
     }
 
-    /// Performs all validations on this hive.
-    fn validate(&self) -> Result<()> {
+    /// Performs basic validations on the header of this hive.
+    ///
+    /// If you read the hive via [`Hive::new`], these validations have already been performed.
+    /// This function is only relevant for hives opened via [`Hive::without_validation`].
+    pub fn validate(&self) -> Result<()> {
         self.validate_signature()?;
         self.validate_sequence_numbers()?;
         self.validate_version()?;
