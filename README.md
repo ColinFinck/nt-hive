@@ -40,7 +40,7 @@ File::open("SYSTEM").unwrap().read_to_end(&mut buffer).unwrap();
 
 let hive = Hive::new(buffer.as_ref()).unwrap();
 let root_key_node = hive.root_key_node().unwrap();
-let key_node = root_key_node.subkey("ControlSet001\\Control\\ServiceGroupOrder").unwrap().unwrap();
+let key_node = root_key_node.subpath("ControlSet001\\Control\\ServiceGroupOrder").unwrap().unwrap();
 let key_value = key_node.value("List").unwrap().unwrap();
 
 let multi_sz_data = key_value.multi_string_data();
