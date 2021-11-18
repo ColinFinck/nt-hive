@@ -1,3 +1,5 @@
+<img align="right" src="img/nt-hive.svg">
+
 # nt-hive
 
 [![crates.io](https://img.shields.io/crates/v/nt-hive)](https://crates.io/crates/nt-hive)
