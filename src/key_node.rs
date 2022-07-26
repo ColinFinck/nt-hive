@@ -253,6 +253,28 @@ impl KeyNodeItemRange {
         }
     }
 
+    fn class_name<'a, B>(&self, hive: &'a Hive<B>) -> Result<NtHiveNameString<'a>>
+    where
+        B: ByteSlice,
+    {
+        let header = self.header(hive);
+        let class_name_offest = header.class_name_offset.get();
+        let class_name_length = header.class_name_length.get() as usize;
+
+        let class_name_offset_range = hive.cell_range_from_data_offset(class_name_offest)?;
+
+        let class_name_range = byte_subrange(&class_name_offset_range, class_name_length)
+            .ok_or_else(|| NtHiveError::InvalidSizeField {
+                offset: hive.offset_of_field(&header.class_name_length),
+                expected: class_name_length as usize,
+                actual: class_name_offset_range.len(),
+            })?;
+
+        let class_name_bytes = &hive.data[class_name_range];
+
+        Ok(NtHiveNameString::Utf16LE(class_name_bytes))
+    }
+
     fn subkey<B>(&self, hive: &Hive<B>, name: &str) -> Option<Result<Self>>
     where
         B: ByteSlice,
@@ -396,6 +418,11 @@ where
     /// Returns the name of this Key Node.
     pub fn name(&self) -> Result<NtHiveNameString> {
         self.item_range.name(&self.hive)
+    }
+
+    /// Returns the class name of this Key Node.
+    pub fn class_name(&self) -> Result<NtHiveNameString> {
+        self.item_range.class_name(&self.hive)
     }
 
     /// Finds a single subkey by name using efficient binary search.
