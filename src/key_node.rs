@@ -253,26 +253,33 @@ impl KeyNodeItemRange {
         }
     }
 
-    fn class_name<'a, B>(&self, hive: &'a Hive<B>) -> Result<NtHiveNameString<'a>>
+    fn class_name<'a, B>(&self, hive: &'a Hive<B>) -> Option<Result<NtHiveNameString<'a>>>
     where
         B: ByteSlice,
     {
         let header = self.header(hive);
-        let class_name_offest = header.class_name_offset.get();
+        let class_name_offset = header.class_name_offset.get();
+        if class_name_offset == u32::MAX {
+            // This Key Node has no Class Name.
+            return None;
+        }
+
         let class_name_length = header.class_name_length.get() as usize;
+        let class_name_offset_range =
+            iter_try!(hive.cell_range_from_data_offset(class_name_offset));
 
-        let class_name_offset_range = hive.cell_range_from_data_offset(class_name_offest)?;
-
-        let class_name_range = byte_subrange(&class_name_offset_range, class_name_length)
-            .ok_or_else(|| NtHiveError::InvalidSizeField {
-                offset: hive.offset_of_field(&header.class_name_length),
-                expected: class_name_length as usize,
-                actual: class_name_offset_range.len(),
-            })?;
-
+        let class_name_range = iter_try!(byte_subrange(
+            &class_name_offset_range,
+            class_name_length
+        )
+        .ok_or_else(|| NtHiveError::InvalidSizeField {
+            offset: hive.offset_of_field(&header.class_name_length),
+            expected: class_name_length,
+            actual: class_name_offset_range.len(),
+        }));
         let class_name_bytes = &hive.data[class_name_range];
 
-        Ok(NtHiveNameString::Utf16LE(class_name_bytes))
+        Some(Ok(NtHiveNameString::Utf16LE(class_name_bytes)))
     }
 
     fn subkey<B>(&self, hive: &Hive<B>, name: &str) -> Option<Result<Self>>
@@ -420,8 +427,8 @@ where
         self.item_range.name(&self.hive)
     }
 
-    /// Returns the class name of this Key Node.
-    pub fn class_name(&self) -> Result<NtHiveNameString> {
+    /// Returns the class name of this Key Node (if any).
+    pub fn class_name(&self) -> Option<Result<NtHiveNameString>> {
         self.item_range.class_name(&self.hive)
     }
 
