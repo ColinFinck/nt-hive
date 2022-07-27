@@ -1,4 +1,4 @@
-// Copyright 2019 Colin Finck <colin@reactos.org>
+// Copyright 2019-2022 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use nt_hive::*;
@@ -52,9 +52,7 @@ where
                 .name()
                 .map_err(|e| format!("Error getting key name: {}", e))?;
 
-            for _i in 0..level {
-                print!("  ");
-            }
+            print_indentation(level);
             println!("● {}", key_name);
 
             // Print the names of the values of this node.
@@ -78,9 +76,7 @@ where
                         .map_err(|e| format!("Error getting value type: {}", e))?;
 
                     // First line: Value Name, Data Type, and Data Size
-                    for _i in 0..level {
-                        print!("  ");
-                    }
+                    print_indentation(level);
                     println!(
                         "  ○ {} - {:?} - {}",
                         value_name,
@@ -89,9 +85,7 @@ where
                     );
 
                     // Second line: The actual Value Data
-                    for _i in 0..level {
-                        print!("  ");
-                    }
+                    print_indentation(level);
                     print!("    ");
 
                     match value_type {
@@ -139,4 +133,10 @@ where
     }
 
     Ok(())
+}
+
+fn print_indentation(level: usize) {
+    for _i in 0..level {
+        print!("  ");
+    }
 }
