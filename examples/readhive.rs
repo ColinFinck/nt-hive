@@ -55,6 +55,13 @@ where
             print_indentation(level);
             println!("● {}", key_name);
 
+            if let Some(class_name) = key_node.class_name() {
+                let class_name =
+                    class_name.map_err(|e| format!("Error getting class name: {}", e))?;
+                print_indentation(level);
+                println!("  Class Name: {}", class_name);
+            }
+
             // Print the names of the values of this node.
             if let Some(value_iter) = key_node.values() {
                 let value_iter =
