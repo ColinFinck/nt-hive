@@ -1,4 +1,4 @@
-// Copyright 2021 Colin Finck <colin@reactos.org>
+// Copyright 2021-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // Windows tool to generate "testhive" using the Offline Registry Library shipped with Windows Vista and newer.
@@ -86,21 +86,45 @@ static void _WriteCharacterEncodingTest(ORHKEY hKey)
 
 static void _WriteDataTest(ORHKEY hKey)
 {
+    // REG_SZ and REG_EXPAND_SZ
     const WCHAR StringTestData[] = L"sz-test";
     pfnORSetValue(hKey, L"reg-sz", REG_SZ, (const BYTE*)StringTestData, wcslen(StringTestData) * sizeof(WCHAR));
     pfnORSetValue(hKey, L"reg-sz-with-terminating-nul", REG_SZ, (const BYTE*)StringTestData, sizeof(StringTestData));
     pfnORSetValue(hKey, L"reg-expand-sz", REG_EXPAND_SZ, (const BYTE*)StringTestData, wcslen(StringTestData) * sizeof(WCHAR));
 
+    // REG_MULTI_SZ with small value data.
     const WCHAR MultiStringTestData[] = L"multi-sz-test\0line2\0";
     pfnORSetValue(hKey, L"reg-multi-sz", REG_MULTI_SZ, (const BYTE*)MultiStringTestData, sizeof(MultiStringTestData));
 
+    // REG_MULTI_SZ with big value data.
+    // First line is 820 times the "0123456789" sequence.
+    // Second line is a single "0123456789" string.
+    // Tests whether nt-hive can concatenate a string that is split between big data slice boundaries.
+    const WCHAR Sequence[] = L"0123456789";
+    const size_t SequenceLength = 10;
+    const size_t SequenceRepeats = 820;
+    const size_t ElementCount = SequenceRepeats * SequenceLength + 1 + SequenceLength + 1 + 1;
+    PWSTR pMultiStringBigTestData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, ElementCount * sizeof(WCHAR));
+
+    for (size_t i = 0; i < SequenceRepeats; i++)
+    {
+        CopyMemory(&pMultiStringBigTestData[i * SequenceLength], Sequence, SequenceLength * sizeof(WCHAR));
+    }
+
+    CopyMemory(&pMultiStringBigTestData[SequenceRepeats * SequenceLength + 1], Sequence, SequenceLength * sizeof(WCHAR));
+    pfnORSetValue(hKey, L"reg-multi-sz-big", REG_MULTI_SZ, (const BYTE*)pMultiStringBigTestData, ElementCount * sizeof(WCHAR));
+    HeapFree(GetProcessHeap(), 0, pMultiStringBigTestData);
+    
+    // REG_DWORD and REG_DWORD_BIG_ENDIAN
     const DWORD DwordTestData = 42;
     pfnORSetValue(hKey, L"dword", REG_DWORD, (const BYTE*)&DwordTestData, sizeof(DwordTestData));
     pfnORSetValue(hKey, L"dword-big-endian", REG_DWORD_BIG_ENDIAN, (const BYTE*)&DwordTestData, sizeof(DwordTestData));
 
+    // REG_QWORD
     const ULONGLONG QwordTestData = (ULONGLONG)-1;
     pfnORSetValue(hKey, L"qword", REG_QWORD, (const BYTE*)&QwordTestData, sizeof(QwordTestData));
 
+    // REG_BINARY
     const BYTE BinaryTestData[] = {1, 2, 3, 4, 5};
     pfnORSetValue(hKey, L"binary", REG_BINARY, BinaryTestData, sizeof(BinaryTestData));
 }

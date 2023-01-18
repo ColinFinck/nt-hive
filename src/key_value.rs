@@ -1,4 +1,4 @@
-// Copyright 2020-2021 Colin Finck <colin@reactos.org>
+// Copyright 2020-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::big_data::{BigDataSlices, BIG_DATA_SEGMENT_SIZE};
@@ -8,7 +8,6 @@ use crate::hive::Hive;
 use crate::string::NtHiveNameString;
 use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
 use bitflags::bitflags;
-use core::convert::TryInto;
 use core::mem;
 use core::ops::{Deref, Range};
 use core::ptr;
@@ -17,7 +16,15 @@ use memoffset::offset_of;
 use zerocopy::*;
 
 #[cfg(feature = "alloc")]
-use {alloc::string::String, alloc::vec::Vec, core::char, core::iter};
+use {
+    alloc::{string::String, vec::Vec},
+    core::{
+        char::{self, DecodeUtf16, DecodeUtf16Error},
+        convert::TryInto,
+        iter::{self, FusedIterator, Map},
+        slice::ChunksExact,
+    },
+};
 
 /// This bit in `data_size` indicates that the data is small enough to be stored in `data_offset`.
 const DATA_STORED_IN_DATA_OFFSET: u32 = 0x8000_0000;
@@ -289,50 +296,10 @@ where
         }
     }
 
-    #[cfg(feature = "alloc")]
-    fn multi_utf16le_to_string_lossy<'a, I>(iter: I) -> Result<Vec<String>>
-    where
-        I: Iterator<Item = Result<&'a [u8]>>,
-    {
-        let mut strings = Vec::new();
-        let mut string = String::new();
-
-        // A very long REG_MULTI_SZ value may be split over several Big Data segments.
-        // Transparently concatenate them in the output string.
-        for slice_data in iter {
-            let slice_data = slice_data?;
-
-            let u16_iter = slice_data
-                .chunks_exact(2)
-                .map(|two_bytes| u16::from_le_bytes(two_bytes.try_into().unwrap()));
-            let char_iter =
-                char::decode_utf16(u16_iter).map(|x| x.unwrap_or(char::REPLACEMENT_CHARACTER));
-
-            for c in char_iter {
-                // REG_MULTI_SZ data consists of multiple strings each terminated by a NUL character.
-                // The final string has a double-NUL termination.
-                //
-                // However, we will happily accept data without terminating NUL characters as well.
-                if c == '\0' {
-                    if string.is_empty() {
-                        return Ok(strings);
-                    }
-
-                    strings.push(string);
-                    string = String::new();
-                } else {
-                    string.push(c);
-                }
-            }
-        }
-
-        Ok(strings)
-    }
-
     /// Checks if this is a `REG_MULTI_SZ` Key Value
     /// and returns the data as a [`Vec`] of [`String`]s in that case.
     #[cfg(feature = "alloc")]
-    pub fn multi_string_data(&self) -> Result<Vec<String>> {
+    pub fn multi_string_data(&self) -> Result<RegMultiSZStrings<B>> {
         // Ensure that this is a REG_MULTI_SZ data type.
         match self.data_type()? {
             KeyValueDataType::RegMultiSZ => (),
@@ -345,8 +312,8 @@ where
         }
 
         match self.data()? {
-            KeyValueData::Small(data) => Self::multi_utf16le_to_string_lossy(iter::once(Ok(data))),
-            KeyValueData::Big(iter) => Self::multi_utf16le_to_string_lossy(iter),
+            KeyValueData::Small(data) => Ok(RegMultiSZStrings::small(data)),
+            KeyValueData::Big(iter) => Ok(RegMultiSZStrings::big(iter)),
         }
     }
 
@@ -456,6 +423,117 @@ where
 
 impl<B> Eq for KeyValue<&Hive<B>, B> where B: ByteSlice {}
 
+#[cfg(feature = "alloc")]
+type RegMultiSZCharIter<'a> = Map<
+    DecodeUtf16<Map<ChunksExact<'a, u8>, fn(&'a [u8]) -> u16>>,
+    fn(Result<char, DecodeUtf16Error>) -> char,
+>;
+
+#[cfg(feature = "alloc")]
+#[derive(Clone)]
+pub struct RegMultiSZStrings<'a, B>
+where
+    B: ByteSlice + 'a,
+{
+    char_iter: Option<RegMultiSZCharIter<'a>>,
+    big_iter: Option<BigDataSlices<'a, B>>,
+}
+
+#[cfg(feature = "alloc")]
+impl<'a, B> RegMultiSZStrings<'a, B>
+where
+    B: ByteSlice + 'a,
+{
+    fn small(data: &'a [u8]) -> Self {
+        Self {
+            char_iter: Some(Self::make_char_iter(data)),
+            big_iter: None,
+        }
+    }
+
+    fn big(iter: BigDataSlices<'a, B>) -> Self {
+        Self {
+            char_iter: None,
+            big_iter: Some(iter),
+        }
+    }
+
+    fn make_char_iter(slice_data: &'a [u8]) -> RegMultiSZCharIter<'a> {
+        let u16_iter = slice_data
+            .chunks_exact(2)
+            .map(Self::u16_from_le_bytes as fn(&[u8]) -> u16);
+        char::decode_utf16(u16_iter).map(
+            Self::unwrap_or_replacement_character as fn(Result<char, DecodeUtf16Error>) -> char,
+        )
+    }
+
+    fn u16_from_le_bytes(two_bytes: &[u8]) -> u16 {
+        u16::from_le_bytes(two_bytes.try_into().unwrap())
+    }
+
+    fn unwrap_or_replacement_character(input: Result<char, DecodeUtf16Error>) -> char {
+        input.unwrap_or(char::REPLACEMENT_CHARACTER)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a, B> Iterator for RegMultiSZStrings<'a, B>
+where
+    B: ByteSlice + 'a,
+{
+    type Item = Result<String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut string = String::new();
+
+        'outer_loop: loop {
+            let char_iter = match self.char_iter.as_mut() {
+                Some(char_iter) => char_iter,
+                None => {
+                    let big_iter = match self.big_iter.as_mut() {
+                        Some(big_iter) => big_iter,
+                        None => break 'outer_loop,
+                    };
+                    let slice_data = match big_iter.next() {
+                        Some(Ok(slice_data)) => slice_data,
+                        Some(Err(e)) => return Some(Err(e)),
+                        None => break 'outer_loop,
+                    };
+                    let char_iter = Self::make_char_iter(slice_data);
+                    self.char_iter = Some(char_iter);
+                    continue 'outer_loop;
+                }
+            };
+
+            for c in char_iter {
+                // REG_MULTI_SZ data consists of multiple strings each terminated by a NUL character.
+                // The final string has a double-NUL termination.
+                //
+                // However, we will happily accept data without terminating NUL characters as well.
+                if c == '\0' {
+                    break 'outer_loop;
+                } else {
+                    string.push(c);
+                }
+            }
+
+            // We have fully iterated all characters of this slice.
+            // Get a new `char_iter` in the next iteration of the outer loop, and concatenate characters
+            // to our `string` until we find a NUL or no more data.
+            self.char_iter = None;
+        }
+
+        if string.is_empty() {
+            None
+        } else {
+            Some(Ok(string))
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<'a, B> FusedIterator for RegMultiSZStrings<'a, B> where B: ByteSlice + 'a {}
+
 #[cfg(test)]
 mod tests {
     use crate::*;
@@ -489,10 +567,19 @@ mod tests {
 
         let key_value = key_node.value("reg-multi-sz").unwrap().unwrap();
         assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegMultiSZ);
-        assert_eq!(
-            key_value.multi_string_data().unwrap(),
-            vec!["multi-sz-test", "line2"]
-        );
+        let mut iter = key_value.multi_string_data().unwrap();
+        assert_eq!(iter.next(), Some(Ok("multi-sz-test".to_owned())));
+        assert_eq!(iter.next(), Some(Ok("line2".to_owned())));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
+
+        let key_value = key_node.value("reg-multi-sz-big").unwrap().unwrap();
+        assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegMultiSZ);
+        let mut iter = key_value.multi_string_data().unwrap();
+        assert_eq!(iter.next(), Some(Ok("0123456789".repeat(820))));
+        assert_eq!(iter.next(), Some(Ok("0123456789".to_owned())));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
 
         let key_value = key_node.value("dword").unwrap().unwrap();
         assert_eq!(key_value.data_type().unwrap(), KeyValueDataType::RegDWord);

@@ -1,4 +1,4 @@
-// Copyright 2019-2022 Colin Finck <colin@reactos.org>
+// Copyright 2019-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use nt_hive::*;
@@ -120,7 +120,11 @@ where
                         KeyValueDataType::RegMultiSZ => {
                             let multi_string_data = value
                                 .multi_string_data()
-                                .map_err(|e| format!("Error getting multi string data: {}", e))?;
+                                .map_err(|e| format!("Error getting multi string data: {e}"))?
+                                .collect::<Result<Vec<_>>>()
+                                .map_err(|e| {
+                                    format!("Error getting multi string element data: {e}")
+                                })?;
                             println!("{:?}", multi_string_data)
                         }
                         KeyValueDataType::RegQWord => {

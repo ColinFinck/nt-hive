@@ -1,4 +1,4 @@
-// Copyright 2019-2021 Colin Finck <colin@reactos.org>
+// Copyright 2019-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use displaydoc::Display;
@@ -9,7 +9,7 @@ use crate::key_value::KeyValueDataType;
 pub type Result<T, E = NtHiveError> = core::result::Result<T, E>;
 
 /// Central error type of nt-hive.
-#[derive(Clone, Debug, Display)]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub enum NtHiveError {
     /// The checksum in the base block should be {expected}, but it is {actual}
     InvalidChecksum { expected: u32, actual: u32 },
