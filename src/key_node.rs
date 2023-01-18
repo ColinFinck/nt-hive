@@ -1,5 +1,16 @@
-// Copyright 2019-2022 Colin Finck <colin@reactos.org>
+// Copyright 2019-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
+
+use core::cmp::Ordering;
+use core::mem;
+use core::ops::{Deref, DerefMut, Range};
+use core::ptr;
+
+use ::byteorder::LittleEndian;
+use bitflags::bitflags;
+use zerocopy::{
+    AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U16, U32, U64,
+};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -10,13 +21,6 @@ use crate::key_values_list::KeyValues;
 use crate::leaf::{LeafItemRange, LeafItemRanges};
 use crate::string::NtHiveNameString;
 use crate::subkeys_list::{SubKeyNodes, SubKeyNodesMut};
-use ::byteorder::LittleEndian;
-use bitflags::bitflags;
-use core::cmp::Ordering;
-use core::mem;
-use core::ops::{Deref, DerefMut, Range};
-use core::ptr;
-use zerocopy::*;
 
 bitflags! {
     struct KeyNodeFlags: u16 {

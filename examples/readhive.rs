@@ -1,12 +1,13 @@
 // Copyright 2019-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use nt_hive::*;
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::ops::Deref;
-use zerocopy::*;
+
+use nt_hive::{Hive, KeyNode, KeyValueData, KeyValueDataType, Result};
+use zerocopy::ByteSlice;
 
 fn main() -> Result<(), String> {
     // Parse arguments.

@@ -1,19 +1,21 @@
 // Copyright 2020-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+use core::mem;
+use core::ops::{Deref, Range};
+use core::ptr;
+
+use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
+use bitflags::bitflags;
+use enumn::N;
+use memoffset::offset_of;
+use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified, Unaligned, U16, U32};
+
 use crate::big_data::{BigDataSlices, BIG_DATA_SEGMENT_SIZE};
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
 use crate::hive::Hive;
 use crate::string::NtHiveNameString;
-use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
-use bitflags::bitflags;
-use core::mem;
-use core::ops::{Deref, Range};
-use core::ptr;
-use enumn::N;
-use memoffset::offset_of;
-use zerocopy::*;
 
 #[cfg(feature = "alloc")]
 use {

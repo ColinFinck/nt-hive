@@ -1,5 +1,12 @@
-// Copyright 2020-2021 Colin Finck <colin@reactos.org>
+// Copyright 2020-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
+
+use core::iter::FusedIterator;
+use core::mem;
+use core::ops::{Deref, Range};
+
+use ::byteorder::LittleEndian;
+use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U32};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -7,11 +14,6 @@ use crate::hive::Hive;
 use crate::index_root::IndexRootItemRange;
 use crate::key_node::KeyNode;
 use crate::subkeys_list::SubkeysList;
-use ::byteorder::LittleEndian;
-use core::iter::FusedIterator;
-use core::mem;
-use core::ops::{Deref, Range};
-use zerocopy::*;
 
 /// On-Disk Structure of a Fast Leaf item (On-Disk Signature: `lf`).
 /// They are supported since Windows NT 4.

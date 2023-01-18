@@ -1,5 +1,12 @@
-// Copyright 2020-2021 Colin Finck <colin@reactos.org>
+// Copyright 2020-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
+
+use core::iter::FusedIterator;
+use core::mem;
+use core::ops::{Deref, Range};
+
+use ::byteorder::LittleEndian;
+use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U16};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -7,11 +14,6 @@ use crate::hive::Hive;
 use crate::index_root::{IndexRootKeyNodes, IndexRootKeyNodesMut};
 use crate::key_node::KeyNode;
 use crate::leaf::{LeafKeyNodes, LeafKeyNodesMut, LeafType};
-use ::byteorder::LittleEndian;
-use core::iter::FusedIterator;
-use core::mem;
-use core::ops::{Deref, Range};
-use zerocopy::*;
 
 /// On-Disk Structure of a Subkeys List header.
 /// This is common for all subkey types (Fast Leaf, Hash Leaf, Index Leaf, Index Root).

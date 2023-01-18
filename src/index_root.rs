@@ -1,16 +1,18 @@
-// Copyright 2019-2021 Colin Finck <colin@reactos.org>
+// Copyright 2019-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
+
+use core::iter::FusedIterator;
+use core::mem;
+use core::ops::{Deref, Range};
+
+use ::byteorder::LittleEndian;
+use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U32};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
 use crate::hive::Hive;
 use crate::key_node::KeyNode;
 use crate::leaf::LeafItemRanges;
-use ::byteorder::LittleEndian;
-use core::iter::FusedIterator;
-use core::mem;
-use core::ops::{Deref, Range};
-use zerocopy::*;
 
 /// On-Disk Structure of a single Index Root item.
 #[derive(AsBytes, FromBytes, Unaligned)]
