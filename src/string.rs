@@ -1,9 +1,8 @@
-// Copyright 2019-2021 Colin Finck <colin@reactos.org>
+// Copyright 2019-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::char;
 use core::cmp::Ordering;
-use core::convert::TryInto;
 use core::fmt;
 
 #[cfg(feature = "alloc")]

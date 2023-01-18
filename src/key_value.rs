@@ -20,7 +20,6 @@ use {
     alloc::{string::String, vec::Vec},
     core::{
         char::{self, DecodeUtf16, DecodeUtf16Error},
-        convert::TryInto,
         iter::{self, FusedIterator, Map},
         slice::ChunksExact,
     },

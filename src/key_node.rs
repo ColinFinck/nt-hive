@@ -551,11 +551,10 @@ mod tests {
         let key_node = root_key_node.subkey("subkey-test").unwrap().unwrap();
 
         for i in 0..512 {
-            let subkey_name = format!("key{}", i);
+            let subkey_name = format!("key{i}");
             assert!(
                 matches!(key_node.subkey(&subkey_name), Some(Ok(_))),
-                "Could not find subkey \"{}\"",
-                subkey_name
+                "Could not find subkey \"{subkey_name}\""
             );
         }
     }

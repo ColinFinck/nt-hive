@@ -47,7 +47,7 @@ let key_value = key_node.value("List").unwrap().unwrap();
 
 let multi_sz_data = key_value.multi_string_data();
 if let Ok(vec) = multi_sz_data {
-    println!("Vector of REG_MULTI_SZ lines: {:?}", vec);
+    println!("Vector of REG_MULTI_SZ lines: {vec:?}");
 }
 ```
 

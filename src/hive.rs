@@ -1,11 +1,10 @@
-// Copyright 2019-2021 Colin Finck <colin@reactos.org>
+// Copyright 2019-2023 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
 use crate::key_node::KeyNode;
 use ::byteorder::LittleEndian;
-use core::convert::TryInto;
 use core::ops::Range;
 use core::{mem, u32};
 use enumn::N;
