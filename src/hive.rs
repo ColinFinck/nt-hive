@@ -155,10 +155,11 @@ where
 
         // Get the actual data range and verify that it's inside our hive data.
         let remaining_range = cell_data_offset..self.data.len();
-        let cell_data_range = byte_subrange(&remaining_range, cell_size).ok_or_else(|| {
+        let cell_data_size = cell_size - mem::size_of::<CellHeader>();
+        let cell_data_range = byte_subrange(&remaining_range, cell_data_size).ok_or_else(|| {
             NtHiveError::InvalidSizeField {
                 offset: self.offset_of_field(&header.size),
-                expected: cell_size,
+                expected: cell_data_size,
                 actual: remaining_range.len(),
             }
         })?;
