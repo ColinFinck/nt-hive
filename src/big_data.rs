@@ -91,7 +91,7 @@ impl BigDataListItemRanges {
             })?;
 
         let header = LayoutVerified::new(&hive.data[header_range]).unwrap();
-        Self::validate_signature(&hive, &header)?;
+        Self::validate_signature(hive, &header)?;
 
         // Check the `segment_count` of the `BigDataHeader`.
         // Verify that we have enough segments to contain the entire data.
@@ -236,7 +236,7 @@ where
 
         // Get the next segment offset and adjust `bytes_left` accordingly.
         let big_data_list_item_range = self.big_data_list_item_ranges.next()?;
-        let segment_offset = big_data_list_item_range.segment_offset(&self.hive);
+        let segment_offset = big_data_list_item_range.segment_offset(self.hive);
         self.bytes_left -= bytes_to_return;
 
         // Get the cell belonging to that offset and check if it contains as many bytes

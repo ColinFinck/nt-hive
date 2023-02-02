@@ -122,7 +122,7 @@ where
     B: ByteSlice,
 {
     pub(crate) fn new(hive: &'a Hive<B>, cell_range: Range<usize>) -> Result<Self> {
-        let subkeys_list = SubkeysList::new(&*hive, cell_range)?;
+        let subkeys_list = SubkeysList::new(hive, cell_range)?;
         let header = subkeys_list.header();
         let signature = header.signature;
         let count = header.count.get();

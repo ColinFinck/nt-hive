@@ -100,13 +100,12 @@ where
     /// (e.g. due to hibernation and mismatching sequence numbers).
     pub fn without_validation(bytes: B) -> Result<Self> {
         let length = bytes.len();
-        let (base_block, data) = LayoutVerified::new_from_prefix(bytes).ok_or_else(|| {
-            NtHiveError::InvalidHeaderSize {
+        let (base_block, data) =
+            LayoutVerified::new_from_prefix(bytes).ok_or(NtHiveError::InvalidHeaderSize {
                 offset: 0,
                 expected: mem::size_of::<HiveBaseBlock>(),
                 actual: length,
-            }
-        })?;
+            })?;
 
         let hive = Self { base_block, data };
         Ok(hive)
@@ -141,7 +140,7 @@ where
                 size: cell_size,
             });
         }
-        let cell_size = cell_size.abs() as usize;
+        let cell_size = cell_size.unsigned_abs() as usize;
 
         // The cell size must be a multiple of 8 bytes
         let expected_alignment = 8;

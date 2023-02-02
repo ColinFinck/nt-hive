@@ -273,7 +273,7 @@ impl KeyNodeItemRange {
         let key_name_range = byte_subrange(&self.data_range, key_name_length).ok_or_else(|| {
             NtHiveError::InvalidSizeField {
                 offset: hive.offset_of_field(&header.key_name_length),
-                expected: key_name_length as usize,
+                expected: key_name_length,
                 actual: self.data_range.len(),
             }
         })?;
@@ -309,7 +309,7 @@ impl KeyNodeItemRange {
     where
         B: ByteSlice,
     {
-        let header = self.header(&hive);
+        let header = self.header(hive);
         let subkeys_list_offset = header.subkeys_list_offset.get();
         if subkeys_list_offset == u32::MAX {
             // This Key Node has no subkeys.

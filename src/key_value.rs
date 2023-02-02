@@ -381,7 +381,7 @@ where
         let name_range = byte_subrange(&self.data_range, name_length).ok_or_else(|| {
             NtHiveError::InvalidSizeField {
                 offset: self.hive.offset_of_field(&header.name_length),
-                expected: name_length as usize,
+                expected: name_length,
                 actual: self.data_range.len(),
             }
         })?;
