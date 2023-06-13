@@ -298,7 +298,7 @@ where
     }
 
     /// Checks if this is a `REG_MULTI_SZ` Key Value
-    /// and returns the data as a [`Vec`] of [`String`]s in that case.
+    /// and returns an iterator over [`String`]s for each line in that case.
     #[cfg(feature = "alloc")]
     pub fn multi_string_data(&self) -> Result<RegMultiSZStrings<B>> {
         // Ensure that this is a REG_MULTI_SZ data type.
