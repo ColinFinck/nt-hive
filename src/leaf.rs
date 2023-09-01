@@ -12,7 +12,7 @@ use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
 use crate::hive::Hive;
 use crate::index_root::IndexRootItemRange;
-use crate::key_node::KeyNode;
+use crate::key_node::{KeyNode, KeyNodeMut};
 use crate::subkeys_list::SubkeysList;
 
 /// On-Disk Structure of a Fast Leaf item (On-Disk Signature: `lf`).
@@ -232,17 +232,17 @@ impl FusedIterator for LeafItemRanges {}
 ///
 /// [`SubKeyNodes`]: crate::subkeys_list::SubKeyNodes
 #[derive(Clone)]
-pub struct LeafKeyNodes<'a, B: ByteSlice> {
-    hive: &'a Hive<B>,
+pub struct LeafKeyNodes<'h, B: ByteSlice> {
+    hive: &'h Hive<B>,
     leaf_item_ranges: LeafItemRanges,
 }
 
-impl<'a, B> LeafKeyNodes<'a, B>
+impl<'h, B> LeafKeyNodes<'h, B>
 where
     B: ByteSlice,
 {
     pub(crate) fn new(
-        hive: &'a Hive<B>,
+        hive: &'h Hive<B>,
         count: u16,
         count_field_offset: usize,
         data_range: Range<usize>,
@@ -258,11 +258,11 @@ where
     }
 }
 
-impl<'a, B> Iterator for LeafKeyNodes<'a, B>
+impl<'h, B> Iterator for LeafKeyNodes<'h, B>
 where
     B: ByteSlice,
 {
-    type Item = Result<KeyNode<&'a Hive<B>, B>>;
+    type Item = Result<KeyNode<'h, B>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let leaf_item_range = self.leaf_item_ranges.next()?;
@@ -299,8 +299,8 @@ where
     }
 }
 
-impl<'a, B> ExactSizeIterator for LeafKeyNodes<'a, B> where B: ByteSlice {}
-impl<'a, B> FusedIterator for LeafKeyNodes<'a, B> where B: ByteSlice {}
+impl<'h, B> ExactSizeIterator for LeafKeyNodes<'h, B> where B: ByteSlice {}
+impl<'h, B> FusedIterator for LeafKeyNodes<'h, B> where B: ByteSlice {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Leaf items of any type (Fast/Hash/Index),
@@ -310,17 +310,17 @@ impl<'a, B> FusedIterator for LeafKeyNodes<'a, B> where B: ByteSlice {}
 /// On-Disk Signatures: `lf`, `lh`, `li`
 ///
 /// [`SubKeyNodesMut`]: crate::subkeys_list::SubKeyNodesMut
-pub(crate) struct LeafKeyNodesMut<'a, B: ByteSliceMut> {
-    hive: &'a mut Hive<B>,
+pub(crate) struct LeafKeyNodesMut<'h, B: ByteSliceMut> {
+    hive: &'h mut Hive<B>,
     leaf_item_ranges: LeafItemRanges,
 }
 
-impl<'a, B> LeafKeyNodesMut<'a, B>
+impl<'h, B> LeafKeyNodesMut<'h, B>
 where
     B: ByteSliceMut,
 {
     pub(crate) fn new(
-        hive: &'a mut Hive<B>,
+        hive: &'h mut Hive<B>,
         count: u16,
         count_field_offset: usize,
         data_range: Range<usize>,
@@ -335,12 +335,12 @@ where
         })
     }
 
-    pub(crate) fn next(&mut self) -> Option<Result<KeyNode<&mut Hive<B>, B>>> {
+    pub(crate) fn next<'a>(&'a mut self) -> Option<Result<KeyNodeMut<'a, B>>>
+    where
+        'h: 'a,
+    {
         let leaf_item_range = self.leaf_item_ranges.next()?;
-        let key_node = iter_try!(KeyNode::from_leaf_item_range(
-            &mut *self.hive,
-            leaf_item_range
-        ));
+        let key_node = iter_try!(KeyNodeMut::from_leaf_item_range(self.hive, leaf_item_range));
         Some(Ok(key_node))
     }
 }

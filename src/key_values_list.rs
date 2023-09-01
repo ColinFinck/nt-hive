@@ -119,17 +119,17 @@ impl FusedIterator for KeyValuesListItemRanges {}
 ///
 /// On-Disk Signature: `vk`
 #[derive(Clone)]
-pub struct KeyValues<'a, B: ByteSlice> {
-    hive: &'a Hive<B>,
+pub struct KeyValues<'h, B: ByteSlice> {
+    hive: &'h Hive<B>,
     key_values_list_item_ranges: KeyValuesListItemRanges,
 }
 
-impl<'a, B> KeyValues<'a, B>
+impl<'h, B> KeyValues<'h, B>
 where
     B: ByteSlice,
 {
     pub(crate) fn new(
-        hive: &'a Hive<B>,
+        hive: &'h Hive<B>,
         count: u32,
         count_field_offset: usize,
         cell_range: Range<usize>,
@@ -144,11 +144,11 @@ where
     }
 }
 
-impl<'a, B> Iterator for KeyValues<'a, B>
+impl<'h, B> Iterator for KeyValues<'h, B>
 where
     B: ByteSlice,
 {
-    type Item = Result<KeyValue<&'a Hive<B>, B>>;
+    type Item = Result<KeyValue<'h, B>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let key_values_list_item_range = self.key_values_list_item_ranges.next()?;
@@ -187,5 +187,5 @@ where
     }
 }
 
-impl<'a, B> ExactSizeIterator for KeyValues<'a, B> where B: ByteSlice {}
-impl<'a, B> FusedIterator for KeyValues<'a, B> where B: ByteSlice {}
+impl<'h, B> ExactSizeIterator for KeyValues<'h, B> where B: ByteSlice {}
+impl<'h, B> FusedIterator for KeyValues<'h, B> where B: ByteSlice {}

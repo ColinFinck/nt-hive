@@ -3,7 +3,7 @@
 
 use core::iter::FusedIterator;
 use core::mem;
-use core::ops::{Deref, Range};
+use core::ops::Range;
 
 use ::byteorder::LittleEndian;
 use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U16};
@@ -12,7 +12,7 @@ use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
 use crate::hive::Hive;
 use crate::index_root::{IndexRootKeyNodes, IndexRootKeyNodesMut};
-use crate::key_node::KeyNode;
+use crate::key_node::{KeyNode, KeyNodeMut};
 use crate::leaf::{LeafKeyNodes, LeafKeyNodesMut, LeafType};
 
 /// On-Disk Structure of a Subkeys List header.
@@ -28,27 +28,33 @@ pub(crate) struct SubkeysListHeader {
 ///
 /// A Subkeys List generalizes over all structures used to manage subkeys.
 /// These are: Fast Leaf (`lf`), Hash Leaf (`lh`), Index Leaf (`li`), Index Root (`ri`).
-pub(crate) struct SubkeysList<H: Deref<Target = Hive<B>>, B: ByteSlice> {
-    hive: H,
+pub(crate) struct SubkeysList<'h, B: ByteSlice> {
+    hive: &'h Hive<B>,
     header_range: Range<usize>,
     pub(crate) data_range: Range<usize>,
 }
 
-impl<H, B> SubkeysList<H, B>
+impl<'h, B> SubkeysList<'h, B>
 where
-    H: Deref<Target = Hive<B>>,
     B: ByteSlice,
 {
-    pub(crate) fn new(hive: H, cell_range: Range<usize>) -> Result<Self> {
+    pub(crate) fn new(hive: &'h Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         Self::new_internal(hive, cell_range, true)
     }
 
-    pub(crate) fn new_without_index_root(hive: H, cell_range: Range<usize>) -> Result<Self> {
+    pub(crate) fn new_without_index_root(
+        hive: &'h Hive<B>,
+        cell_range: Range<usize>,
+    ) -> Result<Self> {
         // This function only exists to share validation code with `LeafItemRanges`.
         Self::new_internal(hive, cell_range, false)
     }
 
-    fn new_internal(hive: H, cell_range: Range<usize>, index_root_supported: bool) -> Result<Self> {
+    fn new_internal(
+        hive: &'h Hive<B>,
+        cell_range: Range<usize>,
+        index_root_supported: bool,
+    ) -> Result<Self> {
         let header_range = byte_subrange(&cell_range, mem::size_of::<SubkeysListHeader>())
             .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: hive.offset_of_data_offset(cell_range.start),
@@ -112,16 +118,16 @@ where
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`, `ri`
 #[derive(Clone)]
-pub enum SubKeyNodes<'a, B: ByteSlice> {
-    IndexRoot(IndexRootKeyNodes<'a, B>),
-    Leaf(LeafKeyNodes<'a, B>),
+pub enum SubKeyNodes<'h, B: ByteSlice> {
+    IndexRoot(IndexRootKeyNodes<'h, B>),
+    Leaf(LeafKeyNodes<'h, B>),
 }
 
-impl<'a, B> SubKeyNodes<'a, B>
+impl<'h, B> SubKeyNodes<'h, B>
 where
     B: ByteSlice,
 {
-    pub(crate) fn new(hive: &'a Hive<B>, cell_range: Range<usize>) -> Result<Self> {
+    pub(crate) fn new(hive: &'h Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         let subkeys_list = SubkeysList::new(hive, cell_range)?;
         let header = subkeys_list.header();
         let signature = header.signature;
@@ -147,11 +153,11 @@ where
     }
 }
 
-impl<'a, B> Iterator for SubKeyNodes<'a, B>
+impl<'h, B> Iterator for SubKeyNodes<'h, B>
 where
     B: ByteSlice,
 {
-    type Item = Result<KeyNode<&'a Hive<B>, B>>;
+    type Item = Result<KeyNode<'h, B>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
@@ -189,7 +195,7 @@ where
     }
 }
 
-impl<'a, B> FusedIterator for SubKeyNodes<'a, B> where B: ByteSlice {}
+impl<'h, B> FusedIterator for SubKeyNodes<'h, B> where B: ByteSlice {}
 
 /// Iterator over
 ///   all subkeys of a [`KeyNode`],
@@ -199,16 +205,16 @@ impl<'a, B> FusedIterator for SubKeyNodes<'a, B> where B: ByteSlice {}
 /// Refer to them for a more technical documentation.
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`, `ri`
-pub(crate) enum SubKeyNodesMut<'a, B: ByteSliceMut> {
-    IndexRoot(IndexRootKeyNodesMut<'a, B>),
-    Leaf(LeafKeyNodesMut<'a, B>),
+pub(crate) enum SubKeyNodesMut<'h, B: ByteSliceMut> {
+    IndexRoot(IndexRootKeyNodesMut<'h, B>),
+    Leaf(LeafKeyNodesMut<'h, B>),
 }
 
-impl<'a, B> SubKeyNodesMut<'a, B>
+impl<'h, B> SubKeyNodesMut<'h, B>
 where
     B: ByteSliceMut,
 {
-    pub(crate) fn new(hive: &'a mut Hive<B>, cell_range: Range<usize>) -> Result<Self> {
+    pub(crate) fn new(hive: &'h mut Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         let subkeys_list = SubkeysList::new(&*hive, cell_range)?;
         let header = subkeys_list.header();
         let signature = header.signature;
@@ -233,7 +239,7 @@ where
         }
     }
 
-    pub fn next(&mut self) -> Option<Result<KeyNode<&mut Hive<B>, B>>> {
+    pub fn next(&mut self) -> Option<Result<KeyNodeMut<B>>> {
         match self {
             Self::IndexRoot(iter) => iter.next(),
             Self::Leaf(iter) => iter.next(),

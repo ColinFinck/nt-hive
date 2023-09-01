@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::mem;
-use core::ops::{Deref, Range};
+use core::ops::Range;
 use core::ptr;
 
 use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
@@ -39,16 +39,16 @@ bitflags! {
 
 /// Zero-copy representation of raw Key Value data, returned by [`KeyValue::data`].
 #[derive(Clone)]
-pub enum KeyValueData<'a, B: ByteSlice> {
+pub enum KeyValueData<'h, B: ByteSlice> {
     /// The data fits into a single cell.
     /// Contains the contiguous range of data bytes.
-    Small(&'a [u8]),
+    Small(&'h [u8]),
     /// The data is big enough to require more than one cell.
     /// Contains an iterator that returns the data byte slice for each cell.
-    Big(BigDataSlices<'a, B>),
+    Big(BigDataSlices<'h, B>),
 }
 
-impl<'a, B> KeyValueData<'a, B>
+impl<'h, B> KeyValueData<'h, B>
 where
     B: ByteSlice,
 {
@@ -109,18 +109,17 @@ struct KeyValueHeader {
 ///
 /// [`KeyNode`]: crate::key_node::KeyNode
 #[derive(Clone)]
-pub struct KeyValue<H: Deref<Target = Hive<B>>, B: ByteSlice> {
-    hive: H,
+pub struct KeyValue<'h, B: ByteSlice> {
+    hive: &'h Hive<B>,
     header_range: Range<usize>,
     data_range: Range<usize>,
 }
 
-impl<H, B> KeyValue<H, B>
+impl<'h, B> KeyValue<'h, B>
 where
-    H: Deref<Target = Hive<B>>,
     B: ByteSlice,
 {
-    pub(crate) fn new(hive: H, cell_range: Range<usize>) -> Result<Self> {
+    pub(crate) fn new(hive: &'h Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         let header_range = byte_subrange(&cell_range, mem::size_of::<KeyValueHeader>())
             .ok_or_else(|| NtHiveError::InvalidHeaderSize {
                 offset: hive.offset_of_data_offset(cell_range.start),
@@ -144,7 +143,7 @@ where
     }
 
     /// Returns the raw data bytes as [`KeyValueData`].
-    pub fn data(&self) -> Result<KeyValueData<B>> {
+    pub fn data(&self) -> Result<KeyValueData<'h, B>> {
         let header = self.header();
 
         let data_size = header.data_size.get();
@@ -190,7 +189,7 @@ where
                 .hive
                 .cell_range_from_data_offset(header.data_offset.get())?;
             let iter = BigDataSlices::new(
-                &self.hive,
+                self.hive,
                 data_size as u32,
                 self.hive.offset_of_field(&header.data_size),
                 cell_range,
@@ -201,9 +200,9 @@ where
     }
 
     #[cfg(feature = "alloc")]
-    fn utf16le_to_string_lossy<'a, I>(iter: I) -> Result<String>
+    fn utf16le_to_string_lossy<I>(iter: I) -> Result<String>
     where
-        I: Iterator<Item = Result<&'a [u8]>>,
+        I: Iterator<Item = Result<&'h [u8]>>,
     {
         let mut string = String::new();
 
@@ -241,7 +240,7 @@ where
     /// Checks if this is a `REG_SZ` or `REG_EXPAND_SZ` Key Value
     /// and returns the data as a [`String`] in that case.
     #[cfg(feature = "alloc")]
-    pub fn string_data(&self) -> Result<String> {
+    pub fn string_data(&'h self) -> Result<String> {
         match self.data_type()? {
             KeyValueDataType::RegSZ | KeyValueDataType::RegExpandSZ => (),
             data_type => {
@@ -300,7 +299,7 @@ where
     /// Checks if this is a `REG_MULTI_SZ` Key Value
     /// and returns an iterator over [`String`]s for each line in that case.
     #[cfg(feature = "alloc")]
-    pub fn multi_string_data(&self) -> Result<RegMultiSZStrings<B>> {
+    pub fn multi_string_data(&self) -> Result<RegMultiSZStrings<'h, B>> {
         // Ensure that this is a REG_MULTI_SZ data type.
         match self.data_type()? {
             KeyValueDataType::RegMultiSZ => (),
@@ -373,7 +372,7 @@ where
     }
 
     /// Returns the name of this Key Value.
-    pub fn name(&self) -> Result<NtHiveNameString> {
+    pub fn name(&self) -> Result<NtHiveNameString<'h>> {
         let header = self.header();
         let flags = KeyValueFlags::from_bits_truncate(header.flags.get());
         let name_length = header.name_length.get() as usize;
@@ -411,7 +410,7 @@ where
     }
 }
 
-impl<B> PartialEq for KeyValue<&Hive<B>, B>
+impl<'h, B> PartialEq for KeyValue<'h, B>
 where
     B: ByteSlice,
 {
@@ -422,44 +421,44 @@ where
     }
 }
 
-impl<B> Eq for KeyValue<&Hive<B>, B> where B: ByteSlice {}
+impl<'h, B> Eq for KeyValue<'h, B> where B: ByteSlice {}
 
 #[cfg(feature = "alloc")]
-type RegMultiSZCharIter<'a> = Map<
-    DecodeUtf16<Map<ChunksExact<'a, u8>, fn(&'a [u8]) -> u16>>,
+type RegMultiSZCharIter<'h> = Map<
+    DecodeUtf16<Map<ChunksExact<'h, u8>, fn(&'h [u8]) -> u16>>,
     fn(Result<char, DecodeUtf16Error>) -> char,
 >;
 
 #[cfg(feature = "alloc")]
 #[derive(Clone)]
-pub struct RegMultiSZStrings<'a, B>
+pub struct RegMultiSZStrings<'h, B>
 where
-    B: ByteSlice + 'a,
+    B: ByteSlice + 'h,
 {
-    char_iter: Option<RegMultiSZCharIter<'a>>,
-    big_iter: Option<BigDataSlices<'a, B>>,
+    char_iter: Option<RegMultiSZCharIter<'h>>,
+    big_iter: Option<BigDataSlices<'h, B>>,
 }
 
 #[cfg(feature = "alloc")]
-impl<'a, B> RegMultiSZStrings<'a, B>
+impl<'h, B> RegMultiSZStrings<'h, B>
 where
-    B: ByteSlice + 'a,
+    B: ByteSlice + 'h,
 {
-    fn small(data: &'a [u8]) -> Self {
+    fn small(data: &'h [u8]) -> Self {
         Self {
             char_iter: Some(Self::make_char_iter(data)),
             big_iter: None,
         }
     }
 
-    fn big(iter: BigDataSlices<'a, B>) -> Self {
+    fn big(iter: BigDataSlices<'h, B>) -> Self {
         Self {
             char_iter: None,
             big_iter: Some(iter),
         }
     }
 
-    fn make_char_iter(slice_data: &'a [u8]) -> RegMultiSZCharIter<'a> {
+    fn make_char_iter(slice_data: &'h [u8]) -> RegMultiSZCharIter<'h> {
         let u16_iter = slice_data
             .chunks_exact(2)
             .map(Self::u16_from_le_bytes as fn(&[u8]) -> u16);
@@ -478,9 +477,9 @@ where
 }
 
 #[cfg(feature = "alloc")]
-impl<'a, B> Iterator for RegMultiSZStrings<'a, B>
+impl<'h, B> Iterator for RegMultiSZStrings<'h, B>
 where
-    B: ByteSlice + 'a,
+    B: ByteSlice + 'h,
 {
     type Item = Result<String>;
 
@@ -533,7 +532,7 @@ where
 }
 
 #[cfg(feature = "alloc")]
-impl<'a, B> FusedIterator for RegMultiSZStrings<'a, B> where B: ByteSlice + 'a {}
+impl<'h, B> FusedIterator for RegMultiSZStrings<'h, B> where B: ByteSlice + 'h {}
 
 #[cfg(test)]
 mod tests {

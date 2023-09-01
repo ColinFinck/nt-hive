@@ -194,18 +194,18 @@ impl FusedIterator for BigDataListItemRanges {}
 ///
 /// [`KeyValueData`]: crate::key_value::KeyValueData
 #[derive(Clone)]
-pub struct BigDataSlices<'a, B: ByteSlice> {
-    hive: &'a Hive<B>,
+pub struct BigDataSlices<'h, B: ByteSlice> {
+    hive: &'h Hive<B>,
     big_data_list_item_ranges: BigDataListItemRanges,
     bytes_left: usize,
 }
 
-impl<'a, B> BigDataSlices<'a, B>
+impl<'h, B> BigDataSlices<'h, B>
 where
     B: ByteSlice,
 {
     pub(crate) fn new(
-        hive: &'a Hive<B>,
+        hive: &'h Hive<B>,
         data_size: u32,
         data_size_field_offset: usize,
         header_cell_range: Range<usize>,
@@ -221,11 +221,11 @@ where
     }
 }
 
-impl<'a, B> Iterator for BigDataSlices<'a, B>
+impl<'h, B> Iterator for BigDataSlices<'h, B>
 where
     B: ByteSlice,
 {
-    type Item = Result<&'a [u8]>;
+    type Item = Result<&'h [u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Every segment contains BIG_DATA_SEGMENT_SIZE bytes of data except for the last one.
@@ -287,8 +287,8 @@ where
     }
 }
 
-impl<'a, B> ExactSizeIterator for BigDataSlices<'a, B> where B: ByteSlice {}
-impl<'a, B> FusedIterator for BigDataSlices<'a, B> where B: ByteSlice {}
+impl<'h, B> ExactSizeIterator for BigDataSlices<'h, B> where B: ByteSlice {}
+impl<'h, B> FusedIterator for BigDataSlices<'h, B> where B: ByteSlice {}
 
 #[cfg(test)]
 mod tests {

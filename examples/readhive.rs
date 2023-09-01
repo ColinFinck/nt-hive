@@ -4,7 +4,6 @@
 use std::env;
 use std::fs::File;
 use std::io::Read;
-use std::ops::Deref;
 
 use nt_hive::{Hive, KeyNode, KeyValueData, KeyValueDataType, Result};
 use zerocopy::ByteSlice;
@@ -38,9 +37,8 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
-fn process_subkey<H, B>(key_node: KeyNode<H, B>, level: usize) -> Result<(), String>
+fn process_subkey<'h, B>(key_node: KeyNode<'h, B>, level: usize) -> Result<(), String>
 where
-    H: Deref<Target = Hive<B>>,
     B: ByteSlice,
 {
     // Print the names of subkeys of this node.

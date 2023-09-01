@@ -1220,17 +1220,17 @@ fn utf16_code_unit_to_uppercase(unit: u16) -> u16 {
 /// If the `alloc` feature is enabled, [`to_string_checked`](NtHiveNameString::to_string_checked) and
 /// [`to_string_lossy`](NtHiveNameString::to_string_lossy) can be used to to retrieve a `String`.
 #[derive(Clone, Debug, Eq)]
-pub enum NtHiveNameString<'a> {
+pub enum NtHiveNameString<'h> {
     /// A byte stream where each byte is a single character of the Latin1 (ISO-8859-1)
     /// character set.
     /// Each byte can simply be casted to a [`prim@char`] (as Unicode is ordered the same as Latin1).
-    Latin1(&'a [u8]),
+    Latin1(&'h [u8]),
     /// A byte stream where every two bytes make up a UTF-16 code point in little-endian order.
     /// Use [`u16::from_le_bytes`] and [`char::decode_utf16`] if you want to get a stream of [`prim@char`]s.
-    Utf16LE(&'a [u8]),
+    Utf16LE(&'h [u8]),
 }
 
-impl<'a> NtHiveNameString<'a> {
+impl<'h> NtHiveNameString<'h> {
     fn cmp_iter<TI, OI>(mut this_iter: TI, mut other_iter: OI) -> Ordering
     where
         TI: Iterator<Item = u16>,
@@ -1281,14 +1281,14 @@ impl<'a> NtHiveNameString<'a> {
         }
     }
 
-    fn latin1_iter(&'a self) -> impl Iterator<Item = u16> + 'a {
+    fn latin1_iter(&'h self) -> impl Iterator<Item = u16> + 'h {
         match self {
             Self::Latin1(bytes) => bytes.iter().map(|byte| *byte as u16),
             Self::Utf16LE(_) => panic!("Called latin1_iter for Utf16LE"),
         }
     }
 
-    fn utf16le_iter(&'a self) -> impl Iterator<Item = u16> + 'a {
+    fn utf16le_iter(&'h self) -> impl Iterator<Item = u16> + 'h {
         match self {
             Self::Latin1(_) => panic!("Called utf16le_iter for Latin1"),
             Self::Utf16LE(bytes) => bytes
@@ -1340,7 +1340,7 @@ impl<'a> NtHiveNameString<'a> {
     }
 }
 
-impl<'a> fmt::Display for NtHiveNameString<'a> {
+impl<'h> fmt::Display for NtHiveNameString<'h> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Latin1(bytes) => {
@@ -1363,7 +1363,7 @@ impl<'a> fmt::Display for NtHiveNameString<'a> {
     }
 }
 
-impl<'a> Ord for NtHiveNameString<'a> {
+impl<'h> Ord for NtHiveNameString<'h> {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::Latin1(_), Self::Latin1(_)) => {
@@ -1382,7 +1382,7 @@ impl<'a> Ord for NtHiveNameString<'a> {
     }
 }
 
-impl<'a> PartialEq for NtHiveNameString<'a> {
+impl<'h> PartialEq for NtHiveNameString<'h> {
     /// Checks that two strings are a case-insensitive match
     /// (according to Windows' definition of case-insensitivity, which only considers the
     /// Unicode Basic Multilingual Plane).
@@ -1391,56 +1391,56 @@ impl<'a> PartialEq for NtHiveNameString<'a> {
     }
 }
 
-impl<'a> PartialEq<str> for NtHiveNameString<'a> {
+impl<'h> PartialEq<str> for NtHiveNameString<'h> {
     fn eq(&self, other: &str) -> bool {
         NtHiveNameString::cmp_self_and_str(self, other) == Ordering::Equal
     }
 }
 
-impl<'a> PartialEq<NtHiveNameString<'a>> for str {
-    fn eq(&self, other: &NtHiveNameString<'a>) -> bool {
+impl<'h> PartialEq<NtHiveNameString<'h>> for str {
+    fn eq(&self, other: &NtHiveNameString<'h>) -> bool {
         NtHiveNameString::cmp_str_and_self(self, other) == Ordering::Equal
     }
 }
 
-impl<'a> PartialEq<&str> for NtHiveNameString<'a> {
+impl<'h> PartialEq<&str> for NtHiveNameString<'h> {
     fn eq(&self, other: &&str) -> bool {
         NtHiveNameString::cmp_self_and_str(self, other) == Ordering::Equal
     }
 }
 
-impl<'a> PartialEq<NtHiveNameString<'a>> for &str {
-    fn eq(&self, other: &NtHiveNameString<'a>) -> bool {
+impl<'h> PartialEq<NtHiveNameString<'h>> for &str {
+    fn eq(&self, other: &NtHiveNameString<'h>) -> bool {
         NtHiveNameString::cmp_str_and_self(self, other) == Ordering::Equal
     }
 }
 
-impl<'a> PartialOrd for NtHiveNameString<'a> {
+impl<'h> PartialOrd for NtHiveNameString<'h> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'a> PartialOrd<str> for NtHiveNameString<'a> {
+impl<'h> PartialOrd<str> for NtHiveNameString<'h> {
     fn partial_cmp(&self, other: &str) -> Option<Ordering> {
         Some(NtHiveNameString::cmp_self_and_str(self, other))
     }
 }
 
-impl<'a> PartialOrd<NtHiveNameString<'a>> for str {
-    fn partial_cmp(&self, other: &NtHiveNameString<'a>) -> Option<Ordering> {
+impl<'h> PartialOrd<NtHiveNameString<'h>> for str {
+    fn partial_cmp(&self, other: &NtHiveNameString<'h>) -> Option<Ordering> {
         Some(NtHiveNameString::cmp_str_and_self(self, other))
     }
 }
 
-impl<'a> PartialOrd<&str> for NtHiveNameString<'a> {
+impl<'h> PartialOrd<&str> for NtHiveNameString<'h> {
     fn partial_cmp(&self, other: &&str) -> Option<Ordering> {
         Some(NtHiveNameString::cmp_self_and_str(self, other))
     }
 }
 
-impl<'a> PartialOrd<NtHiveNameString<'a>> for &str {
-    fn partial_cmp(&self, other: &NtHiveNameString<'a>) -> Option<Ordering> {
+impl<'h> PartialOrd<NtHiveNameString<'h>> for &str {
+    fn partial_cmp(&self, other: &NtHiveNameString<'h>) -> Option<Ordering> {
         Some(NtHiveNameString::cmp_str_and_self(self, other))
     }
 }

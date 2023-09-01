@@ -3,7 +3,7 @@
 
 use core::cmp::Ordering;
 use core::mem;
-use core::ops::{Deref, DerefMut, Range};
+use core::ops::Range;
 use core::ptr;
 
 use ::byteorder::LittleEndian;
@@ -216,7 +216,7 @@ impl KeyNodeItemRange {
         None
     }
 
-    fn class_name<'a, B>(&self, hive: &'a Hive<B>) -> Option<Result<NtHiveNameString<'a>>>
+    fn class_name<'h, B>(&self, hive: &'h Hive<B>) -> Option<Result<NtHiveNameString<'h>>>
     where
         B: ByteSlice,
     {
@@ -245,24 +245,24 @@ impl KeyNodeItemRange {
         Some(Ok(NtHiveNameString::Utf16LE(class_name_bytes)))
     }
 
-    fn header<'a, B>(&self, hive: &'a Hive<B>) -> LayoutVerified<&'a [u8], KeyNodeHeader>
+    fn header<'h, B>(&self, hive: &'h Hive<B>) -> LayoutVerified<&'h [u8], KeyNodeHeader>
     where
         B: ByteSlice,
     {
         LayoutVerified::new(&hive.data[self.header_range.clone()]).unwrap()
     }
 
-    fn header_mut<'a, B>(
+    fn header_mut<'h, B>(
         &self,
-        hive: &'a mut Hive<B>,
-    ) -> LayoutVerified<&'a mut [u8], KeyNodeHeader>
+        hive: &'h mut Hive<B>,
+    ) -> LayoutVerified<&'h mut [u8], KeyNodeHeader>
     where
         B: ByteSliceMut,
     {
         LayoutVerified::new(&mut hive.data[self.header_range.clone()]).unwrap()
     }
 
-    fn name<'a, B>(&self, hive: &'a Hive<B>) -> Result<NtHiveNameString<'a>>
+    fn name<'h, B>(&self, hive: &'h Hive<B>) -> Result<NtHiveNameString<'h>>
     where
         B: ByteSlice,
     {
@@ -355,11 +355,7 @@ impl KeyNodeItemRange {
         }
     }
 
-    fn value<'a, B>(
-        &self,
-        hive: &'a Hive<B>,
-        name: &str,
-    ) -> Option<Result<KeyValue<&'a Hive<B>, B>>>
+    fn value<'h, B>(&self, hive: &'h Hive<B>, name: &str) -> Option<Result<KeyValue<'h, B>>>
     where
         B: ByteSlice,
     {
@@ -380,7 +376,7 @@ impl KeyNodeItemRange {
         })
     }
 
-    fn values<'a, B>(&self, hive: &'a Hive<B>) -> Option<Result<KeyValues<'a, B>>>
+    fn values<'h, B>(&self, hive: &'h Hive<B>) -> Option<Result<KeyValues<'h, B>>>
     where
         B: ByteSlice,
     {
@@ -406,76 +402,78 @@ impl KeyNodeItemRange {
 ///
 /// [`KeyValue`]: crate::key_value::KeyValue
 #[derive(Clone)]
-pub struct KeyNode<H: Deref<Target = Hive<B>>, B: ByteSlice> {
-    hive: H,
+pub struct KeyNode<'h, B: ByteSlice> {
+    hive: &'h Hive<B>,
     item_range: KeyNodeItemRange,
 }
 
-impl<H, B> KeyNode<H, B>
+impl<'h, B> KeyNode<'h, B>
 where
-    H: Deref<Target = Hive<B>>,
     B: ByteSlice,
 {
-    pub(crate) fn from_cell_range(hive: H, cell_range: Range<usize>) -> Result<Self> {
-        let item_range = KeyNodeItemRange::from_cell_range(&hive, cell_range)?;
+    pub(crate) fn from_cell_range(hive: &'h Hive<B>, cell_range: Range<usize>) -> Result<Self> {
+        let item_range = KeyNodeItemRange::from_cell_range(hive, cell_range)?;
         Ok(Self { hive, item_range })
     }
 
-    pub(crate) fn from_leaf_item_range(hive: H, leaf_item_range: LeafItemRange) -> Result<Self> {
-        let item_range = KeyNodeItemRange::from_leaf_item_range(&hive, leaf_item_range)?;
+    pub(crate) fn from_leaf_item_range(
+        hive: &'h Hive<B>,
+        leaf_item_range: LeafItemRange,
+    ) -> Result<Self> {
+        let item_range = KeyNodeItemRange::from_leaf_item_range(hive, leaf_item_range)?;
         Ok(Self { hive, item_range })
     }
 
     /// Returns the class name of this Key Node (if any).
     pub fn class_name(&self) -> Option<Result<NtHiveNameString>> {
-        self.item_range.class_name(&self.hive)
+        self.item_range.class_name(self.hive)
     }
 
     /// Returns the name of this Key Node.
     pub fn name(&self) -> Result<NtHiveNameString> {
-        self.item_range.name(&self.hive)
+        self.item_range.name(self.hive)
     }
 
     /// Finds a single subkey by name using efficient binary search.
-    pub fn subkey(&self, name: &str) -> Option<Result<KeyNode<&Hive<B>, B>>> {
-        let item_range = iter_try!(self.item_range.subkey(&self.hive, name)?);
+    pub fn subkey(&self, name: &str) -> Option<Result<KeyNode<'h, B>>> {
+        let item_range = iter_try!(self.item_range.subkey(self.hive, name)?);
 
         Some(Ok(KeyNode {
-            hive: &self.hive,
+            hive: self.hive,
             item_range,
         }))
     }
 
     /// Returns an iterator over the subkeys of this Key Node.
-    pub fn subkeys(&self) -> Option<Result<SubKeyNodes<B>>> {
-        let cell_range = iter_try!(self.item_range.subkeys_cell_range(&self.hive)?);
-        Some(SubKeyNodes::new(&self.hive, cell_range))
+    pub fn subkeys(&self) -> Option<Result<SubKeyNodes<'h, B>>> {
+        let cell_range = iter_try!(self.item_range.subkeys_cell_range(self.hive)?);
+        Some(SubKeyNodes::new(self.hive, cell_range))
     }
 
     /// Traverses the given subpath and returns the [`KeyNode`] of the last path element.
     ///
     /// Path elements must be separated by backslashes.
-    pub fn subpath(&self, path: &str) -> Option<Result<KeyNode<&Hive<B>, B>>> {
-        let item_range = iter_try!(self.item_range.subpath(&self.hive, path)?);
+    pub fn subpath(&self, path: &str) -> Option<Result<KeyNode<'h, B>>> {
+        let item_range = iter_try!(self.item_range.subpath(self.hive, path)?);
 
         Some(Ok(KeyNode {
-            hive: &self.hive,
+            hive: self.hive,
             item_range,
         }))
     }
 
     /// Finds a single value by name.
-    pub fn value(&self, name: &str) -> Option<Result<KeyValue<&Hive<B>, B>>> {
-        self.item_range.value(&self.hive, name)
+    pub fn value(&self, name: &str) -> Option<Result<KeyValue<'h, B>>> {
+        self.item_range.value(self.hive, name)
     }
 
     /// Returns an iterator over the values of this Key Node.
-    pub fn values(&self) -> Option<Result<KeyValues<B>>> {
-        self.item_range.values(&self.hive)
+    pub fn values(&self) -> Option<Result<KeyValues<'h, B>>> {
+        self.item_range.values(self.hive)
     }
 }
 
-impl<B> PartialEq for KeyNode<&Hive<B>, B>
+impl<'h, B> PartialEq for KeyNode<'h, B>
 where
     B: ByteSlice,
 {
@@ -484,15 +482,32 @@ where
     }
 }
 
-impl<B> Eq for KeyNode<&Hive<B>, B> where B: ByteSlice {}
+impl<'h, B> Eq for KeyNode<'h, B> where B: ByteSlice {}
 
-impl<H, B> KeyNode<H, B>
+pub(crate) struct KeyNodeMut<'h, B: ByteSliceMut> {
+    hive: &'h mut Hive<B>,
+    item_range: KeyNodeItemRange,
+}
+
+impl<'h, B> KeyNodeMut<'h, B>
 where
-    H: DerefMut<Target = Hive<B>>,
     B: ByteSliceMut,
 {
+    pub(crate) fn from_cell_range(hive: &'h mut Hive<B>, cell_range: Range<usize>) -> Result<Self> {
+        let item_range = KeyNodeItemRange::from_cell_range(hive, cell_range)?;
+        Ok(Self { hive, item_range })
+    }
+
+    pub(crate) fn from_leaf_item_range(
+        hive: &'h mut Hive<B>,
+        leaf_item_range: LeafItemRange,
+    ) -> Result<Self> {
+        let item_range = KeyNodeItemRange::from_leaf_item_range(hive, leaf_item_range)?;
+        Ok(Self { hive, item_range })
+    }
+
     pub(crate) fn clear_volatile_subkeys(&mut self) -> Result<()> {
-        let mut header = self.item_range.header_mut(&mut self.hive);
+        let mut header = self.item_range.header_mut(self.hive);
         header.volatile_subkey_count.set(0);
 
         if let Some(subkeys) = self.subkeys_mut() {
@@ -506,8 +521,8 @@ where
     }
 
     pub(crate) fn subkeys_mut(&mut self) -> Option<Result<SubKeyNodesMut<B>>> {
-        let cell_range = iter_try!(self.item_range.subkeys_cell_range(&self.hive)?);
-        Some(SubKeyNodesMut::new(&mut self.hive, cell_range))
+        let cell_range = iter_try!(self.item_range.subkeys_cell_range(self.hive)?);
+        Some(SubKeyNodesMut::new(self.hive, cell_range))
     }
 }
 
