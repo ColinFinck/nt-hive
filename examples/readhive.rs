@@ -37,7 +37,7 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
-fn process_subkey<'h, B>(key_node: KeyNode<'h, B>, level: usize) -> Result<(), String>
+fn process_subkey<B>(key_node: KeyNode<B>, level: usize) -> Result<(), String>
 where
     B: ByteSlice,
 {
