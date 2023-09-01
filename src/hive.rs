@@ -8,14 +8,14 @@ use ::byteorder::LittleEndian;
 use enumn::N;
 use memoffset::offset_of;
 use zerocopy::{
-    AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, I32, U16, U32, U64,
+    AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, I32, U16, U32, U64,
 };
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
 use crate::key_node::{KeyNode, KeyNodeMut};
 
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct CellHeader {
     size: I32<LittleEndian>,
@@ -51,7 +51,7 @@ enum HiveFileFormats {
 }
 
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct HiveBaseBlock {
     signature: [u8; 4],
@@ -75,7 +75,7 @@ struct HiveBaseBlock {
 
 /// Root structure describing a registry hive.
 pub struct Hive<B: ByteSlice> {
-    base_block: LayoutVerified<B, HiveBaseBlock>,
+    base_block: Ref<B, HiveBaseBlock>,
     pub(crate) data: B,
 }
 
@@ -101,7 +101,7 @@ where
     pub fn without_validation(bytes: B) -> Result<Self> {
         let length = bytes.len();
         let (base_block, data) =
-            LayoutVerified::new_from_prefix(bytes).ok_or(NtHiveError::InvalidHeaderSize {
+            Ref::new_from_prefix(bytes).ok_or(NtHiveError::InvalidHeaderSize {
                 offset: 0,
                 expected: mem::size_of::<HiveBaseBlock>(),
                 actual: length,
@@ -130,7 +130,7 @@ where
         let cell_data_offset = header_range.end;
 
         // After the check above, the following operation must succeed, so we can just `unwrap`.
-        let header = LayoutVerified::<&[u8], CellHeader>::new(&self.data[header_range]).unwrap();
+        let header = Ref::<&[u8], CellHeader>::new(&self.data[header_range]).unwrap();
         let cell_size = header.size.get();
 
         // A cell with size > 0 is unallocated and shouldn't be processed any further by us.

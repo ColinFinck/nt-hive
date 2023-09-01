@@ -6,7 +6,7 @@ use core::mem;
 use core::ops::Range;
 
 use ::byteorder::LittleEndian;
-use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U16};
+use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, U16};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -17,7 +17,7 @@ use crate::leaf::{LeafKeyNodes, LeafKeyNodesMut, LeafType};
 
 /// On-Disk Structure of a Subkeys List header.
 /// This is common for all subkey types (Fast Leaf, Hash Leaf, Index Leaf, Index Root).
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 pub(crate) struct SubkeysListHeader {
     pub(crate) signature: [u8; 2],
@@ -73,8 +73,8 @@ where
         Ok(subkeys_list)
     }
 
-    pub(crate) fn header(&self) -> LayoutVerified<&[u8], SubkeysListHeader> {
-        LayoutVerified::new(&self.hive.data[self.header_range.clone()]).unwrap()
+    pub(crate) fn header(&self) -> Ref<&[u8], SubkeysListHeader> {
+        Ref::new(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
     fn validate_signature(&self, index_root_supported: bool) -> Result<()> {

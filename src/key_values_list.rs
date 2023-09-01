@@ -6,7 +6,7 @@ use core::mem;
 use core::ops::{Deref, Range};
 
 use ::byteorder::LittleEndian;
-use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified, Unaligned, U32};
+use zerocopy::{AsBytes, ByteSlice, FromBytes, FromZeroes, Ref, Unaligned, U32};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -15,7 +15,7 @@ use crate::key_value::KeyValue;
 
 /// On-Disk Structure of a Key Values List item.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct KeyValuesListItem {
     key_value_offset: U32<LittleEndian>,
@@ -29,8 +29,7 @@ impl KeyValuesListItemRange {
     where
         B: ByteSlice,
     {
-        let item =
-            LayoutVerified::<&[u8], KeyValuesListItem>::new(&hive.data[self.0.clone()]).unwrap();
+        let item = Ref::<&[u8], KeyValuesListItem>::new(&hive.data[self.0.clone()]).unwrap();
         item.key_value_offset.get()
     }
 }

@@ -22,7 +22,7 @@ use crate::hive::Hive;
 pub(crate) const BIG_DATA_SEGMENT_SIZE: usize = 16344;
 
 /// On-Disk Structure of a Big Data header.
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct BigDataHeader {
     signature: [u8; 2],
@@ -31,7 +31,7 @@ struct BigDataHeader {
 }
 
 /// On-Disk Structure of a Big Data list item.
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct BigDataListItem {
     segment_offset: U32<LittleEndian>,
@@ -45,8 +45,7 @@ impl BigDataListItemRange {
     where
         B: ByteSlice,
     {
-        let item =
-            LayoutVerified::<&[u8], BigDataListItem>::new(&hive.data[self.0.clone()]).unwrap();
+        let item = Ref::<&[u8], BigDataListItem>::new(&hive.data[self.0.clone()]).unwrap();
         item.segment_offset.get()
     }
 }
@@ -90,7 +89,7 @@ impl BigDataListItemRanges {
                 actual: header_cell_range.len(),
             })?;
 
-        let header = LayoutVerified::new(&hive.data[header_range]).unwrap();
+        let header = Ref::new(&hive.data[header_range]).unwrap();
         Self::validate_signature(hive, &header)?;
 
         // Check the `segment_count` of the `BigDataHeader`.
@@ -123,10 +122,7 @@ impl BigDataListItemRanges {
         Ok(Self { items_range })
     }
 
-    fn validate_signature<B>(
-        hive: &Hive<B>,
-        header: &LayoutVerified<&[u8], BigDataHeader>,
-    ) -> Result<()>
+    fn validate_signature<B>(hive: &Hive<B>, header: &Ref<&[u8], BigDataHeader>) -> Result<()>
     where
         B: ByteSlice,
     {

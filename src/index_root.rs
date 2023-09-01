@@ -6,7 +6,7 @@ use core::mem;
 use core::ops::{Deref, Range};
 
 use ::byteorder::LittleEndian;
-use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U32};
+use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, U32};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -15,7 +15,7 @@ use crate::key_node::{KeyNode, KeyNodeMut};
 use crate::leaf::LeafItemRanges;
 
 /// On-Disk Structure of a single Index Root item.
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct IndexRootItem {
     subkeys_list_offset: U32<LittleEndian>,
@@ -29,7 +29,7 @@ impl IndexRootItemRange {
     where
         B: ByteSlice,
     {
-        let item = LayoutVerified::<&[u8], IndexRootItem>::new(&hive.data[self.0.clone()]).unwrap();
+        let item = Ref::<&[u8], IndexRootItem>::new(&hive.data[self.0.clone()]).unwrap();
         item.subkeys_list_offset.get()
     }
 }

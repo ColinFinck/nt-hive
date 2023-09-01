@@ -9,7 +9,7 @@ use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
 use bitflags::bitflags;
 use enumn::N;
 use memoffset::offset_of;
-use zerocopy::{AsBytes, ByteSlice, FromBytes, LayoutVerified, Unaligned, U16, U32};
+use zerocopy::{AsBytes, ByteSlice, FromBytes, FromZeroes, Ref, Unaligned, U16, U32};
 
 use crate::big_data::{BigDataSlices, BIG_DATA_SEGMENT_SIZE};
 use crate::error::{NtHiveError, Result};
@@ -90,7 +90,7 @@ pub enum KeyValueDataType {
 
 /// On-Disk Structure of a Key Value header.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct KeyValueHeader {
     signature: [u8; 2],
@@ -138,8 +138,8 @@ where
         Ok(key_value)
     }
 
-    fn header(&self) -> LayoutVerified<&[u8], KeyValueHeader> {
-        LayoutVerified::new(&self.hive.data[self.header_range.clone()]).unwrap()
+    fn header(&self) -> Ref<&[u8], KeyValueHeader> {
+        Ref::new(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
     /// Returns the raw data bytes as [`KeyValueData`].

@@ -6,7 +6,7 @@ use core::mem;
 use core::ops::{Deref, Range};
 
 use ::byteorder::LittleEndian;
-use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U32};
+use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, U32};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -18,7 +18,7 @@ use crate::subkeys_list::SubkeysList;
 /// On-Disk Structure of a Fast Leaf item (On-Disk Signature: `lf`).
 /// They are supported since Windows NT 4.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct FastLeafItem {
     key_node_offset: U32<LittleEndian>,
@@ -28,7 +28,7 @@ struct FastLeafItem {
 /// On-Disk Structure of a Hash Leaf item (On-Disk Signature: `lh`).
 /// They are supported since Windows XP.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct HashLeafItem {
     key_node_offset: U32<LittleEndian>,
@@ -37,7 +37,7 @@ struct HashLeafItem {
 
 /// On-Disk Structure of an Index Leaf item (On-Disk Signature: `li`).
 /// They are supported in all Windows versions.
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct IndexLeafItem {
     key_node_offset: U32<LittleEndian>,
@@ -92,8 +92,7 @@ impl LeafItemRange {
         // `IndexLeafItem` with additional fields.
         // As they all have the `key_node_offset` as their first field, treat them equally.
         let (index_leaf_item, _) =
-            LayoutVerified::<&[u8], IndexLeafItem>::new_from_prefix(&hive.data[self.0.clone()])
-                .unwrap();
+            Ref::<&[u8], IndexLeafItem>::new_from_prefix(&hive.data[self.0.clone()]).unwrap();
         index_leaf_item.key_node_offset.get()
     }
 }

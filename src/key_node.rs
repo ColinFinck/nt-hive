@@ -9,7 +9,7 @@ use core::ptr;
 use ::byteorder::LittleEndian;
 use bitflags::bitflags;
 use zerocopy::{
-    AsBytes, ByteSlice, ByteSliceMut, FromBytes, LayoutVerified, Unaligned, U16, U32, U64,
+    AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, U16, U32, U64,
 };
 
 use crate::error::{NtHiveError, Result};
@@ -49,7 +49,7 @@ bitflags! {
 
 /// On-Disk Structure of a Key Node header.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, Unaligned)]
+#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
 #[repr(packed)]
 struct KeyNodeHeader {
     signature: [u8; 2],
@@ -245,21 +245,18 @@ impl KeyNodeItemRange {
         Some(Ok(NtHiveNameString::Utf16LE(class_name_bytes)))
     }
 
-    fn header<'h, B>(&self, hive: &'h Hive<B>) -> LayoutVerified<&'h [u8], KeyNodeHeader>
+    fn header<'h, B>(&self, hive: &'h Hive<B>) -> Ref<&'h [u8], KeyNodeHeader>
     where
         B: ByteSlice,
     {
-        LayoutVerified::new(&hive.data[self.header_range.clone()]).unwrap()
+        Ref::new(&hive.data[self.header_range.clone()]).unwrap()
     }
 
-    fn header_mut<'h, B>(
-        &self,
-        hive: &'h mut Hive<B>,
-    ) -> LayoutVerified<&'h mut [u8], KeyNodeHeader>
+    fn header_mut<'h, B>(&self, hive: &'h mut Hive<B>) -> Ref<&'h mut [u8], KeyNodeHeader>
     where
         B: ByteSliceMut,
     {
-        LayoutVerified::new(&mut hive.data[self.header_range.clone()]).unwrap()
+        Ref::new(&mut hive.data[self.header_range.clone()]).unwrap()
     }
 
     fn name<'h, B>(&self, hive: &'h Hive<B>) -> Result<NtHiveNameString<'h>>
