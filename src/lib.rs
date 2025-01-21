@@ -1,4 +1,4 @@
-// Copyright 2019-2021 Colin Finck <colin@reactos.org>
+// Copyright 2019-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 //! # nt-hive
@@ -13,6 +13,7 @@
 //! 4. Get an interesting value using [`KeyNode::value`] or [`KeyNode::values`].
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![doc(html_logo_url = "https://colinfinck.de/img/software/nt-hive.svg")]
 #![forbid(unsafe_code)]
 
 #[macro_use]
