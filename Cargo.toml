@@ -8,19 +8,19 @@ repository = "https://github.com/ColinFinck/nt-hive"
 documentation = "https://docs.rs/nt-hive"
 readme = "README.md"
 edition = "2021"
-rust-version = "1.61.0"
+rust-version = "1.81"
 license = "GPL-2.0-or-later"
 keywords = ["windows", "nt", "registry", "hive", "regf"]
 categories = ["no-std", "os::windows-apis", "parser-implementations"]
 
 [dependencies]
 bitflags = "2.8.0"
-displaydoc = { version = "0.2.5", default-features = false }
 enumn = "0.1.14"
 memoffset = "0.9.1"
+thiserror = { version = "2.0.11", default-features = false }
 zerocopy = { version = "0.8.14", features = ["derive"] }
 
 [features]
 default = ["std"]
 alloc = []
-std = ["alloc"]
+std = ["alloc", "thiserror/std"]
