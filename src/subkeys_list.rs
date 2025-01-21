@@ -7,7 +7,8 @@ use core::ops::Range;
 
 use zerocopy::byteorder::LittleEndian;
 use zerocopy::{
-    SplitByteSliceMut, FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned, U16,
+    FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, SplitByteSliceMut,
+    Unaligned, U16,
 };
 
 use crate::error::{NtHiveError, Result};

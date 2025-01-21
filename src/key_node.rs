@@ -9,8 +9,8 @@ use core::ptr;
 use bitflags::bitflags;
 use zerocopy::byteorder::LittleEndian;
 use zerocopy::{
-    SplitByteSliceMut, FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned,
-    U16, U32, U64,
+    FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, SplitByteSliceMut,
+    Unaligned, U16, U32, U64,
 };
 
 use crate::error::{NtHiveError, Result};
@@ -630,7 +630,9 @@ mod tests {
             key_node.subpath("with-single-level-subkey\\\\subkey\\"),
             Some(Ok(_))
         ));
-        assert!(key_node.subpath("with-single-level-subkey\\subkey\\non-existing-too").is_none());
+        assert!(key_node
+            .subpath("with-single-level-subkey\\subkey\\non-existing-too")
+            .is_none());
 
         assert!(matches!(
             key_node.subpath("with-two-levels-of-subkeys\\subkey1\\subkey2"),

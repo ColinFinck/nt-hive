@@ -6,7 +6,7 @@ use core::mem;
 use core::ops::{Deref, Range};
 
 use zerocopy::byteorder::LittleEndian;
-use zerocopy::{SplitByteSlice, FromBytes, Immutable, IntoBytes, KnownLayout, Ref, Unaligned, U32};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned, U32};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
