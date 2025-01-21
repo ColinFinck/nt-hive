@@ -197,7 +197,7 @@ where
     }
 }
 
-impl<'h, B> FusedIterator for SubKeyNodes<'h, B> where B: SplitByteSlice {}
+impl<B> FusedIterator for SubKeyNodes<'_, B> where B: SplitByteSlice {}
 
 /// Iterator over
 ///   all subkeys of a [`KeyNode`],

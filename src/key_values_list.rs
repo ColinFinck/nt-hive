@@ -186,5 +186,5 @@ where
     }
 }
 
-impl<'h, B> ExactSizeIterator for KeyValues<'h, B> where B: SplitByteSlice {}
-impl<'h, B> FusedIterator for KeyValues<'h, B> where B: SplitByteSlice {}
+impl<B> ExactSizeIterator for KeyValues<'_, B> where B: SplitByteSlice {}
+impl<B> FusedIterator for KeyValues<'_, B> where B: SplitByteSlice {}

@@ -300,8 +300,8 @@ where
     }
 }
 
-impl<'h, B> ExactSizeIterator for LeafKeyNodes<'h, B> where B: SplitByteSlice {}
-impl<'h, B> FusedIterator for LeafKeyNodes<'h, B> where B: SplitByteSlice {}
+impl<B> ExactSizeIterator for LeafKeyNodes<'_, B> where B: SplitByteSlice {}
+impl<B> FusedIterator for LeafKeyNodes<'_, B> where B: SplitByteSlice {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Leaf items of any type (Fast/Hash/Index),

@@ -50,7 +50,7 @@ pub enum KeyValueData<'h, B: SplitByteSlice> {
     Big(BigDataSlices<'h, B>),
 }
 
-impl<'h, B> KeyValueData<'h, B>
+impl<B> KeyValueData<'_, B>
 where
     B: SplitByteSlice,
 {
@@ -414,7 +414,7 @@ where
     }
 }
 
-impl<'h, B> PartialEq for KeyValue<'h, B>
+impl<B> PartialEq for KeyValue<'_, B>
 where
     B: SplitByteSlice,
 {
@@ -425,7 +425,7 @@ where
     }
 }
 
-impl<'h, B> Eq for KeyValue<'h, B> where B: SplitByteSlice {}
+impl<B> Eq for KeyValue<'_, B> where B: SplitByteSlice {}
 
 #[cfg(feature = "alloc")]
 type RegMultiSZCharIter<'h> = Map<

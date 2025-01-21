@@ -181,7 +181,7 @@ where
     }
 }
 
-impl<'h, B> FusedIterator for IndexRootKeyNodes<'h, B> where B: SplitByteSlice {}
+impl<B> FusedIterator for IndexRootKeyNodes<'_, B> where B: SplitByteSlice {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Index Root items,

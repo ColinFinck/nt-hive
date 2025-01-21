@@ -1,4 +1,4 @@
-// Copyright 2019-2023 Colin Finck <colin@reactos.org>
+// Copyright 2019-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::char;
@@ -1340,7 +1340,7 @@ impl<'h> NtHiveNameString<'h> {
     }
 }
 
-impl<'h> fmt::Display for NtHiveNameString<'h> {
+impl fmt::Display for NtHiveNameString<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Latin1(bytes) => {
@@ -1363,7 +1363,7 @@ impl<'h> fmt::Display for NtHiveNameString<'h> {
     }
 }
 
-impl<'h> Ord for NtHiveNameString<'h> {
+impl Ord for NtHiveNameString<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::Latin1(_), Self::Latin1(_)) => {
@@ -1382,7 +1382,7 @@ impl<'h> Ord for NtHiveNameString<'h> {
     }
 }
 
-impl<'h> PartialEq for NtHiveNameString<'h> {
+impl PartialEq for NtHiveNameString<'_> {
     /// Checks that two strings are a case-insensitive match
     /// (according to Windows' definition of case-insensitivity, which only considers the
     /// Unicode Basic Multilingual Plane).
@@ -1391,7 +1391,7 @@ impl<'h> PartialEq for NtHiveNameString<'h> {
     }
 }
 
-impl<'h> PartialEq<str> for NtHiveNameString<'h> {
+impl PartialEq<str> for NtHiveNameString<'_> {
     fn eq(&self, other: &str) -> bool {
         NtHiveNameString::cmp_self_and_str(self, other) == Ordering::Equal
     }
@@ -1403,7 +1403,7 @@ impl<'h> PartialEq<NtHiveNameString<'h>> for str {
     }
 }
 
-impl<'h> PartialEq<&str> for NtHiveNameString<'h> {
+impl PartialEq<&str> for NtHiveNameString<'_> {
     fn eq(&self, other: &&str) -> bool {
         NtHiveNameString::cmp_self_and_str(self, other) == Ordering::Equal
     }
@@ -1415,13 +1415,13 @@ impl<'h> PartialEq<NtHiveNameString<'h>> for &str {
     }
 }
 
-impl<'h> PartialOrd for NtHiveNameString<'h> {
+impl PartialOrd for NtHiveNameString<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'h> PartialOrd<str> for NtHiveNameString<'h> {
+impl PartialOrd<str> for NtHiveNameString<'_> {
     fn partial_cmp(&self, other: &str) -> Option<Ordering> {
         Some(NtHiveNameString::cmp_self_and_str(self, other))
     }
@@ -1433,7 +1433,7 @@ impl<'h> PartialOrd<NtHiveNameString<'h>> for str {
     }
 }
 
-impl<'h> PartialOrd<&str> for NtHiveNameString<'h> {
+impl PartialOrd<&str> for NtHiveNameString<'_> {
     fn partial_cmp(&self, other: &&str) -> Option<Ordering> {
         Some(NtHiveNameString::cmp_self_and_str(self, other))
     }

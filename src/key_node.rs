@@ -471,7 +471,7 @@ where
     }
 }
 
-impl<'h, B> PartialEq for KeyNode<'h, B>
+impl<B> PartialEq for KeyNode<'_, B>
 where
     B: SplitByteSlice,
 {
@@ -480,7 +480,7 @@ where
     }
 }
 
-impl<'h, B> Eq for KeyNode<'h, B> where B: SplitByteSlice {}
+impl<B> Eq for KeyNode<'_, B> where B: SplitByteSlice {}
 
 pub(crate) struct KeyNodeMut<'h, B: SplitByteSliceMut> {
     hive: &'h mut Hive<B>,
@@ -612,7 +612,7 @@ mod tests {
         assert!(matches!(key_node.subpath("\\no-subkeys"), Some(Ok(_))));
         assert!(matches!(key_node.subpath("no-subkeys\\"), Some(Ok(_))));
         assert!(matches!(key_node.subpath("\\no-subkeys\\"), Some(Ok(_))));
-        assert!(matches!(key_node.subpath("no-subkeys\\non-existing"), None));
+        assert!(key_node.subpath("no-subkeys\\non-existing").is_none());
 
         assert!(matches!(
             key_node.subpath("with-single-level-subkey"),
@@ -630,10 +630,7 @@ mod tests {
             key_node.subpath("with-single-level-subkey\\\\subkey\\"),
             Some(Ok(_))
         ));
-        assert!(matches!(
-            key_node.subpath("with-single-level-subkey\\subkey\\non-existing-too"),
-            None
-        ));
+        assert!(key_node.subpath("with-single-level-subkey\\subkey\\non-existing-too").is_none());
 
         assert!(matches!(
             key_node.subpath("with-two-levels-of-subkeys\\subkey1\\subkey2"),
@@ -644,7 +641,7 @@ mod tests {
             Some(Ok(_))
         ));
 
-        assert!(matches!(key_node.subpath("non-existing"), None));
-        assert!(matches!(key_node.subpath("non-existing\\sub"), None));
+        assert!(key_node.subpath("non-existing").is_none());
+        assert!(key_node.subpath("non-existing\\sub").is_none());
     }
 }

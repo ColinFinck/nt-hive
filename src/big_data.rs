@@ -285,8 +285,8 @@ where
     }
 }
 
-impl<'h, B> ExactSizeIterator for BigDataSlices<'h, B> where B: SplitByteSlice {}
-impl<'h, B> FusedIterator for BigDataSlices<'h, B> where B: SplitByteSlice {}
+impl<B> ExactSizeIterator for BigDataSlices<'_, B> where B: SplitByteSlice {}
+impl<B> FusedIterator for BigDataSlices<'_, B> where B: SplitByteSlice {}
 
 #[cfg(test)]
 mod tests {

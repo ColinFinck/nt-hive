@@ -1,8 +1,8 @@
 // Copyright 2019-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+use core::mem;
 use core::ops::Range;
-use core::{mem, u32};
 
 use enumn::N;
 use memoffset::offset_of;
