@@ -1,12 +1,12 @@
-// Copyright 2020-2023 Colin Finck <colin@reactos.org>
+// Copyright 2020-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::iter::FusedIterator;
 use core::mem;
 use core::ops::{Deref, Range};
 
-use ::byteorder::LittleEndian;
-use zerocopy::{AsBytes, ByteSlice, FromBytes, FromZeroes, Ref, Unaligned, U32};
+use zerocopy::byteorder::LittleEndian;
+use zerocopy::{SplitByteSlice, FromBytes, Immutable, IntoBytes, KnownLayout, Ref, Unaligned, U32};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -15,7 +15,7 @@ use crate::key_value::KeyValue;
 
 /// On-Disk Structure of a Key Values List item.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct KeyValuesListItem {
     key_value_offset: U32<LittleEndian>,
@@ -27,9 +27,9 @@ struct KeyValuesListItemRange(Range<usize>);
 impl KeyValuesListItemRange {
     fn key_value_offset<B>(&self, hive: &Hive<B>) -> u32
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
-        let item = Ref::<&[u8], KeyValuesListItem>::new(&hive.data[self.0.clone()]).unwrap();
+        let item = Ref::<&[u8], KeyValuesListItem>::from_bytes(&hive.data[self.0.clone()]).unwrap();
         item.key_value_offset.get()
     }
 }
@@ -118,14 +118,14 @@ impl FusedIterator for KeyValuesListItemRanges {}
 ///
 /// On-Disk Signature: `vk`
 #[derive(Clone)]
-pub struct KeyValues<'h, B: ByteSlice> {
+pub struct KeyValues<'h, B: SplitByteSlice> {
     hive: &'h Hive<B>,
     key_values_list_item_ranges: KeyValuesListItemRanges,
 }
 
 impl<'h, B> KeyValues<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     pub(crate) fn new(
         hive: &'h Hive<B>,
@@ -145,7 +145,7 @@ where
 
 impl<'h, B> Iterator for KeyValues<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     type Item = Result<KeyValue<'h, B>>;
 
@@ -186,5 +186,5 @@ where
     }
 }
 
-impl<'h, B> ExactSizeIterator for KeyValues<'h, B> where B: ByteSlice {}
-impl<'h, B> FusedIterator for KeyValues<'h, B> where B: ByteSlice {}
+impl<'h, B> ExactSizeIterator for KeyValues<'h, B> where B: SplitByteSlice {}
+impl<'h, B> FusedIterator for KeyValues<'h, B> where B: SplitByteSlice {}

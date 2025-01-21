@@ -1,4 +1,4 @@
-// Copyright 2020-2023 Colin Finck <colin@reactos.org>
+// Copyright 2020-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::cmp;
@@ -6,8 +6,10 @@ use core::iter::FusedIterator;
 use core::mem;
 use core::ops::{Deref, Range};
 
-use ::byteorder::LittleEndian;
-use zerocopy::*;
+use zerocopy::byteorder::LittleEndian;
+use zerocopy::{
+    FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned, U16, U32,
+};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -22,7 +24,7 @@ use crate::hive::Hive;
 pub(crate) const BIG_DATA_SEGMENT_SIZE: usize = 16344;
 
 /// On-Disk Structure of a Big Data header.
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct BigDataHeader {
     signature: [u8; 2],
@@ -31,7 +33,7 @@ struct BigDataHeader {
 }
 
 /// On-Disk Structure of a Big Data list item.
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct BigDataListItem {
     segment_offset: U32<LittleEndian>,
@@ -43,9 +45,9 @@ struct BigDataListItemRange(Range<usize>);
 impl BigDataListItemRange {
     fn segment_offset<B>(&self, hive: &Hive<B>) -> u32
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
-        let item = Ref::<&[u8], BigDataListItem>::new(&hive.data[self.0.clone()]).unwrap();
+        let item = Ref::<&[u8], BigDataListItem>::from_bytes(&hive.data[self.0.clone()]).unwrap();
         item.segment_offset.get()
     }
 }
@@ -76,7 +78,7 @@ impl BigDataListItemRanges {
         header_cell_range: Range<usize>,
     ) -> Result<Self>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let data_size = data_size as usize;
 
@@ -89,7 +91,7 @@ impl BigDataListItemRanges {
                 actual: header_cell_range.len(),
             })?;
 
-        let header = Ref::new(&hive.data[header_range]).unwrap();
+        let header = Ref::from_bytes(&hive.data[header_range]).unwrap();
         Self::validate_signature(hive, &header)?;
 
         // Check the `segment_count` of the `BigDataHeader`.
@@ -124,7 +126,7 @@ impl BigDataListItemRanges {
 
     fn validate_signature<B>(hive: &Hive<B>, header: &Ref<&[u8], BigDataHeader>) -> Result<()>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let signature = &header.signature;
         let expected_signature = b"db";
@@ -190,7 +192,7 @@ impl FusedIterator for BigDataListItemRanges {}
 ///
 /// [`KeyValueData`]: crate::key_value::KeyValueData
 #[derive(Clone)]
-pub struct BigDataSlices<'h, B: ByteSlice> {
+pub struct BigDataSlices<'h, B: SplitByteSlice> {
     hive: &'h Hive<B>,
     big_data_list_item_ranges: BigDataListItemRanges,
     bytes_left: usize,
@@ -198,7 +200,7 @@ pub struct BigDataSlices<'h, B: ByteSlice> {
 
 impl<'h, B> BigDataSlices<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     pub(crate) fn new(
         hive: &'h Hive<B>,
@@ -219,7 +221,7 @@ where
 
 impl<'h, B> Iterator for BigDataSlices<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     type Item = Result<&'h [u8]>;
 
@@ -283,8 +285,8 @@ where
     }
 }
 
-impl<'h, B> ExactSizeIterator for BigDataSlices<'h, B> where B: ByteSlice {}
-impl<'h, B> FusedIterator for BigDataSlices<'h, B> where B: ByteSlice {}
+impl<'h, B> ExactSizeIterator for BigDataSlices<'h, B> where B: SplitByteSlice {}
+impl<'h, B> FusedIterator for BigDataSlices<'h, B> where B: SplitByteSlice {}
 
 #[cfg(test)]
 mod tests {

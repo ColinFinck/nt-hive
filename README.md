@@ -16,7 +16,7 @@ nt-hive has been developed as part of a Rust bootloader project.
 Its current feature set is therefore aligned to the needs of a ReactOS/Windows bootloader.
 
 ## Features
-* Support for reading keys, values, and data from any byte slice containing hive data (i.e. anything that implements [`zerocopy::ByteSlice`](https://docs.rs/zerocopy/0.3.0/zerocopy/trait.ByteSlice.html)).
+* Support for reading keys, values, and data from any byte slice containing hive data (i.e. anything that implements [`zerocopy::SplitByteSlice`](https://docs.rs/zerocopy/0.3.0/zerocopy/trait.ByteSlice.html)).
 * Basic in-memory modifications of hive data (as [required for a bootloader](https://github.com/reactos/reactos/pull/1883)).
 * Iterators for keys and values to enable writing idiomatic Rust code.
 * Functions to find a specific subkey, subkey path, or value as efficient as possible (taking advantage of binary search for keys).

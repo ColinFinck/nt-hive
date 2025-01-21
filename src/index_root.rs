@@ -1,12 +1,15 @@
-// Copyright 2019-2023 Colin Finck <colin@reactos.org>
+// Copyright 2019-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::iter::FusedIterator;
 use core::mem;
 use core::ops::{Deref, Range};
 
-use ::byteorder::LittleEndian;
-use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, U32};
+use zerocopy::byteorder::LittleEndian;
+use zerocopy::{
+    FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, SplitByteSliceMut,
+    Unaligned, U32,
+};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -15,7 +18,7 @@ use crate::key_node::{KeyNode, KeyNodeMut};
 use crate::leaf::LeafItemRanges;
 
 /// On-Disk Structure of a single Index Root item.
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct IndexRootItem {
     subkeys_list_offset: U32<LittleEndian>,
@@ -27,9 +30,9 @@ pub(crate) struct IndexRootItemRange(Range<usize>);
 impl IndexRootItemRange {
     pub fn subkeys_list_offset<B>(&self, hive: &Hive<B>) -> u32
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
-        let item = Ref::<&[u8], IndexRootItem>::new(&hive.data[self.0.clone()]).unwrap();
+        let item = Ref::<&[u8], IndexRootItem>::from_bytes(&hive.data[self.0.clone()]).unwrap();
         item.subkeys_list_offset.get()
     }
 }
@@ -108,7 +111,7 @@ impl Iterator for IndexRootItemRanges {
 impl ExactSizeIterator for IndexRootItemRanges {}
 impl FusedIterator for IndexRootItemRanges {}
 
-impl<B: ByteSlice> From<IndexRootKeyNodes<'_, B>> for IndexRootItemRanges {
+impl<B: SplitByteSlice> From<IndexRootKeyNodes<'_, B>> for IndexRootItemRanges {
     fn from(index_root_key_nodes: IndexRootKeyNodes<'_, B>) -> IndexRootItemRanges {
         index_root_key_nodes.index_root_item_ranges
     }
@@ -123,7 +126,7 @@ impl<B: ByteSlice> From<IndexRootKeyNodes<'_, B>> for IndexRootItemRanges {
 ///
 /// [`SubKeyNodes`]: crate::subkeys_list::SubKeyNodes
 #[derive(Clone)]
-pub struct IndexRootKeyNodes<'h, B: ByteSlice> {
+pub struct IndexRootKeyNodes<'h, B: SplitByteSlice> {
     hive: &'h Hive<B>,
     index_root_item_ranges: IndexRootItemRanges,
     leaf_item_ranges: Option<LeafItemRanges>,
@@ -131,7 +134,7 @@ pub struct IndexRootKeyNodes<'h, B: ByteSlice> {
 
 impl<'h, B> IndexRootKeyNodes<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     pub(crate) fn new(
         hive: &'h Hive<B>,
@@ -152,7 +155,7 @@ where
 
 impl<'h, B> Iterator for IndexRootKeyNodes<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     type Item = Result<KeyNode<'h, B>>;
 
@@ -178,7 +181,7 @@ where
     }
 }
 
-impl<'h, B> FusedIterator for IndexRootKeyNodes<'h, B> where B: ByteSlice {}
+impl<'h, B> FusedIterator for IndexRootKeyNodes<'h, B> where B: SplitByteSlice {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Index Root items,
@@ -188,7 +191,7 @@ impl<'h, B> FusedIterator for IndexRootKeyNodes<'h, B> where B: ByteSlice {}
 /// On-Disk Signature: `ri`
 ///
 /// [`SubKeyNodesMut`]: crate::subkeys_list::SubKeyNodesMut
-pub(crate) struct IndexRootKeyNodesMut<'h, B: ByteSliceMut> {
+pub(crate) struct IndexRootKeyNodesMut<'h, B: SplitByteSliceMut> {
     hive: &'h mut Hive<B>,
     index_root_item_ranges: IndexRootItemRanges,
     leaf_item_ranges: Option<LeafItemRanges>,
@@ -196,7 +199,7 @@ pub(crate) struct IndexRootKeyNodesMut<'h, B: ByteSliceMut> {
 
 impl<'h, B> IndexRootKeyNodesMut<'h, B>
 where
-    B: ByteSliceMut,
+    B: SplitByteSliceMut,
 {
     pub(crate) fn new(
         hive: &'h mut Hive<B>,

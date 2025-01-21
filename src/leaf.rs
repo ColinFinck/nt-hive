@@ -1,12 +1,14 @@
-// Copyright 2020-2023 Colin Finck <colin@reactos.org>
+// Copyright 2020-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::iter::FusedIterator;
 use core::mem;
 use core::ops::{Deref, Range};
 
-use ::byteorder::LittleEndian;
-use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, U32};
+use zerocopy::byteorder::LittleEndian;
+use zerocopy::{
+    SplitByteSliceMut, FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned, U32,
+};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -18,7 +20,7 @@ use crate::subkeys_list::SubkeysList;
 /// On-Disk Structure of a Fast Leaf item (On-Disk Signature: `lf`).
 /// They are supported since Windows NT 4.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct FastLeafItem {
     key_node_offset: U32<LittleEndian>,
@@ -28,7 +30,7 @@ struct FastLeafItem {
 /// On-Disk Structure of a Hash Leaf item (On-Disk Signature: `lh`).
 /// They are supported since Windows XP.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct HashLeafItem {
     key_node_offset: U32<LittleEndian>,
@@ -37,7 +39,7 @@ struct HashLeafItem {
 
 /// On-Disk Structure of an Index Leaf item (On-Disk Signature: `li`).
 /// They are supported in all Windows versions.
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct IndexLeafItem {
     key_node_offset: U32<LittleEndian>,
@@ -86,13 +88,13 @@ pub(crate) struct LeafItemRange(Range<usize>);
 impl LeafItemRange {
     pub fn key_node_offset<B>(&self, hive: &Hive<B>) -> u32
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         // We make use of the fact that a `FastLeafItem` or `HashLeafItem` is just an
         // `IndexLeafItem` with additional fields.
         // As they all have the `key_node_offset` as their first field, treat them equally.
         let (index_leaf_item, _) =
-            Ref::<&[u8], IndexLeafItem>::new_from_prefix(&hive.data[self.0.clone()]).unwrap();
+            Ref::<&[u8], IndexLeafItem>::from_prefix(&hive.data[self.0.clone()]).unwrap();
         index_leaf_item.key_node_offset.get()
     }
 }
@@ -144,7 +146,7 @@ impl LeafItemRanges {
         index_root_item_range: IndexRootItemRange,
     ) -> Result<Self>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let subkeys_list_offset = index_root_item_range.subkeys_list_offset(hive);
         let cell_range = hive.cell_range_from_data_offset(subkeys_list_offset)?;
@@ -213,7 +215,7 @@ impl Iterator for LeafItemRanges {
     }
 }
 
-impl<B: ByteSlice> From<LeafKeyNodes<'_, B>> for LeafItemRanges {
+impl<B: SplitByteSlice> From<LeafKeyNodes<'_, B>> for LeafItemRanges {
     fn from(leaf_key_nodes: LeafKeyNodes<'_, B>) -> LeafItemRanges {
         leaf_key_nodes.leaf_item_ranges
     }
@@ -231,14 +233,14 @@ impl FusedIterator for LeafItemRanges {}
 ///
 /// [`SubKeyNodes`]: crate::subkeys_list::SubKeyNodes
 #[derive(Clone)]
-pub struct LeafKeyNodes<'h, B: ByteSlice> {
+pub struct LeafKeyNodes<'h, B: SplitByteSlice> {
     hive: &'h Hive<B>,
     leaf_item_ranges: LeafItemRanges,
 }
 
 impl<'h, B> LeafKeyNodes<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     pub(crate) fn new(
         hive: &'h Hive<B>,
@@ -259,7 +261,7 @@ where
 
 impl<'h, B> Iterator for LeafKeyNodes<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     type Item = Result<KeyNode<'h, B>>;
 
@@ -298,8 +300,8 @@ where
     }
 }
 
-impl<'h, B> ExactSizeIterator for LeafKeyNodes<'h, B> where B: ByteSlice {}
-impl<'h, B> FusedIterator for LeafKeyNodes<'h, B> where B: ByteSlice {}
+impl<'h, B> ExactSizeIterator for LeafKeyNodes<'h, B> where B: SplitByteSlice {}
+impl<'h, B> FusedIterator for LeafKeyNodes<'h, B> where B: SplitByteSlice {}
 
 /// Iterator over
 ///   a contiguous range of data bytes containing Leaf items of any type (Fast/Hash/Index),
@@ -309,14 +311,14 @@ impl<'h, B> FusedIterator for LeafKeyNodes<'h, B> where B: ByteSlice {}
 /// On-Disk Signatures: `lf`, `lh`, `li`
 ///
 /// [`SubKeyNodesMut`]: crate::subkeys_list::SubKeyNodesMut
-pub(crate) struct LeafKeyNodesMut<'h, B: ByteSliceMut> {
+pub(crate) struct LeafKeyNodesMut<'h, B: SplitByteSliceMut> {
     hive: &'h mut Hive<B>,
     leaf_item_ranges: LeafItemRanges,
 }
 
 impl<'h, B> LeafKeyNodesMut<'h, B>
 where
-    B: ByteSliceMut,
+    B: SplitByteSliceMut,
 {
     pub(crate) fn new(
         hive: &'h mut Hive<B>,

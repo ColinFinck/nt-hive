@@ -1,21 +1,22 @@
-// Copyright 2019-2023 Colin Finck <colin@reactos.org>
+// Copyright 2019-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::ops::Range;
 use core::{mem, u32};
 
-use ::byteorder::LittleEndian;
 use enumn::N;
 use memoffset::offset_of;
+use zerocopy::byteorder::LittleEndian;
 use zerocopy::{
-    AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, I32, U16, U32, U64,
+    FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, SplitByteSliceMut,
+    Unaligned, I32, U16, U32, U64,
 };
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
 use crate::key_node::{KeyNode, KeyNodeMut};
 
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct CellHeader {
     size: I32<LittleEndian>,
@@ -51,7 +52,7 @@ enum HiveFileFormats {
 }
 
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct HiveBaseBlock {
     signature: [u8; 4],
@@ -74,14 +75,14 @@ struct HiveBaseBlock {
 }
 
 /// Root structure describing a registry hive.
-pub struct Hive<B: ByteSlice> {
+pub struct Hive<B: SplitByteSlice> {
     base_block: Ref<B, HiveBaseBlock>,
     pub(crate) data: B,
 }
 
 impl<B> Hive<B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     /// Creates a new `Hive` from any byte slice.
     /// Performs basic validation and rejects any invalid hive.
@@ -101,7 +102,7 @@ where
     pub fn without_validation(bytes: B) -> Result<Self> {
         let length = bytes.len();
         let (base_block, data) =
-            Ref::new_from_prefix(bytes).ok_or(NtHiveError::InvalidHeaderSize {
+            Ref::from_prefix(bytes).map_err(|_| NtHiveError::InvalidHeaderSize {
                 offset: 0,
                 expected: mem::size_of::<HiveBaseBlock>(),
                 actual: length,
@@ -130,7 +131,7 @@ where
         let cell_data_offset = header_range.end;
 
         // After the check above, the following operation must succeed, so we can just `unwrap`.
-        let header = Ref::<&[u8], CellHeader>::new(&self.data[header_range]).unwrap();
+        let header = Ref::<&[u8], CellHeader>::from_bytes(&self.data[header_range]).unwrap();
         let cell_size = header.size.get();
 
         // A cell with size > 0 is unallocated and shouldn't be processed any further by us.
@@ -173,7 +174,7 @@ where
     /// and `data`.
     pub(crate) fn offset_of_field<T>(&self, field: &T) -> usize {
         let field_address = field as *const T as usize;
-        let base_address = self.base_block.bytes().as_ptr() as usize;
+        let base_address = Ref::bytes(&self.base_block).as_ptr() as usize;
 
         assert!(field_address > base_address);
         field_address - base_address
@@ -226,7 +227,8 @@ where
 
         // Calculate the XOR-32 checksum of all bytes preceding the checksum field.
         let mut calculated_checksum = 0;
-        for dword_bytes in self.base_block.bytes()[..checksum_offset].chunks(mem::size_of::<u32>())
+        for dword_bytes in
+            Ref::bytes(&self.base_block)[..checksum_offset].chunks(mem::size_of::<u32>())
         {
             let dword = u32::from_le_bytes(dword_bytes.try_into().unwrap());
             calculated_checksum ^= dword;
@@ -360,7 +362,7 @@ where
 
 impl<B> Hive<B>
 where
-    B: ByteSliceMut,
+    B: SplitByteSliceMut,
 {
     /// Clears the `volatile_subkey_count` field of all key nodes recursively.
     ///

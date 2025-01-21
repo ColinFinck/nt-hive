@@ -1,4 +1,4 @@
-// Copyright 2019-2023 Colin Finck <colin@reactos.org>
+// Copyright 2019-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::cmp::Ordering;
@@ -6,10 +6,11 @@ use core::mem;
 use core::ops::Range;
 use core::ptr;
 
-use ::byteorder::LittleEndian;
 use bitflags::bitflags;
+use zerocopy::byteorder::LittleEndian;
 use zerocopy::{
-    AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, U16, U32, U64,
+    SplitByteSliceMut, FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned,
+    U16, U32, U64,
 };
 
 use crate::error::{NtHiveError, Result};
@@ -49,7 +50,7 @@ bitflags! {
 
 /// On-Disk Structure of a Key Node header.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct KeyNodeHeader {
     signature: [u8; 2],
@@ -84,7 +85,7 @@ struct KeyNodeItemRange {
 impl KeyNodeItemRange {
     fn from_cell_range<B>(hive: &Hive<B>, cell_range: Range<usize>) -> Result<Self>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let header_range =
             byte_subrange(&cell_range, mem::size_of::<KeyNodeHeader>()).ok_or_else(|| {
@@ -107,7 +108,7 @@ impl KeyNodeItemRange {
 
     fn from_leaf_item_range<B>(hive: &Hive<B>, leaf_item_range: LeafItemRange) -> Result<Self>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let key_node_offset = leaf_item_range.key_node_offset(hive);
         let cell_range = hive.cell_range_from_data_offset(key_node_offset)?;
@@ -122,7 +123,7 @@ impl KeyNodeItemRange {
         index_root_item_ranges: IndexRootItemRanges,
     ) -> Option<Result<Self>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         // The following textbook binary search algorithm requires signed math.
         // Fortunately, Index Roots have a u16 `count` field, hence we should be able to convert to i32.
@@ -189,7 +190,7 @@ impl KeyNodeItemRange {
         leaf_item_ranges: LeafItemRanges,
     ) -> Option<Result<Self>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         // The following textbook binary search algorithm requires signed math.
         // Fortunately, Leafs have a u16 `count` field, hence we should be able to convert to i32.
@@ -218,7 +219,7 @@ impl KeyNodeItemRange {
 
     fn class_name<'h, B>(&self, hive: &'h Hive<B>) -> Option<Result<NtHiveNameString<'h>>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let header = self.header(hive);
         let class_name_offset = header.class_name_offset.get();
@@ -247,21 +248,21 @@ impl KeyNodeItemRange {
 
     fn header<'h, B>(&self, hive: &'h Hive<B>) -> Ref<&'h [u8], KeyNodeHeader>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
-        Ref::new(&hive.data[self.header_range.clone()]).unwrap()
+        Ref::from_bytes(&hive.data[self.header_range.clone()]).unwrap()
     }
 
     fn header_mut<'h, B>(&self, hive: &'h mut Hive<B>) -> Ref<&'h mut [u8], KeyNodeHeader>
     where
-        B: ByteSliceMut,
+        B: SplitByteSliceMut,
     {
-        Ref::new(&mut hive.data[self.header_range.clone()]).unwrap()
+        Ref::from_bytes(&mut hive.data[self.header_range.clone()]).unwrap()
     }
 
     fn name<'h, B>(&self, hive: &'h Hive<B>) -> Result<NtHiveNameString<'h>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let header = self.header(hive);
         let flags = KeyNodeFlags::from_bits_truncate(header.flags.get());
@@ -285,7 +286,7 @@ impl KeyNodeItemRange {
 
     fn subkey<B>(&self, hive: &Hive<B>, name: &str) -> Option<Result<Self>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let cell_range = iter_try!(self.subkeys_cell_range(hive)?);
         let subkeys = iter_try!(SubKeyNodes::new(hive, cell_range));
@@ -304,7 +305,7 @@ impl KeyNodeItemRange {
 
     fn subkeys_cell_range<B>(&self, hive: &Hive<B>) -> Option<Result<Range<usize>>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let header = self.header(hive);
         let subkeys_list_offset = header.subkeys_list_offset.get();
@@ -319,7 +320,7 @@ impl KeyNodeItemRange {
 
     fn subpath<B>(&self, hive: &Hive<B>, path: &str) -> Option<Result<Self>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let mut key_node_item_range = self.clone();
 
@@ -335,7 +336,7 @@ impl KeyNodeItemRange {
 
     fn validate_signature<B>(&self, hive: &Hive<B>) -> Result<()>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let header = self.header(hive);
         let signature = &header.signature;
@@ -354,7 +355,7 @@ impl KeyNodeItemRange {
 
     fn value<'h, B>(&self, hive: &'h Hive<B>, name: &str) -> Option<Result<KeyValue<'h, B>>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let mut values = iter_try!(self.values(hive)?);
 
@@ -375,7 +376,7 @@ impl KeyNodeItemRange {
 
     fn values<'h, B>(&self, hive: &'h Hive<B>) -> Option<Result<KeyValues<'h, B>>>
     where
-        B: ByteSlice,
+        B: SplitByteSlice,
     {
         let header = self.header(hive);
         let key_values_list_offset = header.key_values_list_offset.get();
@@ -399,14 +400,14 @@ impl KeyNodeItemRange {
 ///
 /// [`KeyValue`]: crate::key_value::KeyValue
 #[derive(Clone)]
-pub struct KeyNode<'h, B: ByteSlice> {
+pub struct KeyNode<'h, B: SplitByteSlice> {
     hive: &'h Hive<B>,
     item_range: KeyNodeItemRange,
 }
 
 impl<'h, B> KeyNode<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     pub(crate) fn from_cell_range(hive: &'h Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         let item_range = KeyNodeItemRange::from_cell_range(hive, cell_range)?;
@@ -472,23 +473,23 @@ where
 
 impl<'h, B> PartialEq for KeyNode<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     fn eq(&self, other: &Self) -> bool {
         ptr::eq(self.hive, other.hive) && self.item_range == other.item_range
     }
 }
 
-impl<'h, B> Eq for KeyNode<'h, B> where B: ByteSlice {}
+impl<'h, B> Eq for KeyNode<'h, B> where B: SplitByteSlice {}
 
-pub(crate) struct KeyNodeMut<'h, B: ByteSliceMut> {
+pub(crate) struct KeyNodeMut<'h, B: SplitByteSliceMut> {
     hive: &'h mut Hive<B>,
     item_range: KeyNodeItemRange,
 }
 
 impl<'h, B> KeyNodeMut<'h, B>
 where
-    B: ByteSliceMut,
+    B: SplitByteSliceMut,
 {
     pub(crate) fn from_cell_range(hive: &'h mut Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         let item_range = KeyNodeItemRange::from_cell_range(hive, cell_range)?;

@@ -1,4 +1,4 @@
-// Copyright 2019-2023 Colin Finck <colin@reactos.org>
+// Copyright 2019-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::env;
@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Read;
 
 use nt_hive::{Hive, KeyNode, KeyValueData, KeyValueDataType, Result};
-use zerocopy::ByteSlice;
+use zerocopy::SplitByteSlice;
 
 fn main() -> Result<(), String> {
     // Parse arguments.
@@ -39,7 +39,7 @@ fn main() -> Result<(), String> {
 
 fn process_subkey<B>(key_node: KeyNode<B>, level: usize) -> Result<(), String>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     // Print the names of subkeys of this node.
     if let Some(subkeys) = key_node.subkeys() {

@@ -1,12 +1,14 @@
-// Copyright 2020-2023 Colin Finck <colin@reactos.org>
+// Copyright 2020-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::iter::FusedIterator;
 use core::mem;
 use core::ops::Range;
 
-use ::byteorder::LittleEndian;
-use zerocopy::{AsBytes, ByteSlice, ByteSliceMut, FromBytes, FromZeroes, Ref, Unaligned, U16};
+use zerocopy::byteorder::LittleEndian;
+use zerocopy::{
+    SplitByteSliceMut, FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned, U16,
+};
 
 use crate::error::{NtHiveError, Result};
 use crate::helpers::byte_subrange;
@@ -17,7 +19,7 @@ use crate::leaf::{LeafKeyNodes, LeafKeyNodesMut, LeafType};
 
 /// On-Disk Structure of a Subkeys List header.
 /// This is common for all subkey types (Fast Leaf, Hash Leaf, Index Leaf, Index Root).
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 pub(crate) struct SubkeysListHeader {
     pub(crate) signature: [u8; 2],
@@ -28,7 +30,7 @@ pub(crate) struct SubkeysListHeader {
 ///
 /// A Subkeys List generalizes over all structures used to manage subkeys.
 /// These are: Fast Leaf (`lf`), Hash Leaf (`lh`), Index Leaf (`li`), Index Root (`ri`).
-pub(crate) struct SubkeysList<'h, B: ByteSlice> {
+pub(crate) struct SubkeysList<'h, B: SplitByteSlice> {
     hive: &'h Hive<B>,
     header_range: Range<usize>,
     pub(crate) data_range: Range<usize>,
@@ -36,7 +38,7 @@ pub(crate) struct SubkeysList<'h, B: ByteSlice> {
 
 impl<'h, B> SubkeysList<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     pub(crate) fn new(hive: &'h Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         Self::new_internal(hive, cell_range, true)
@@ -74,7 +76,7 @@ where
     }
 
     pub(crate) fn header(&self) -> Ref<&[u8], SubkeysListHeader> {
-        Ref::new(&self.hive.data[self.header_range.clone()]).unwrap()
+        Ref::from_bytes(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
     fn validate_signature(&self, index_root_supported: bool) -> Result<()> {
@@ -118,14 +120,14 @@ where
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`, `ri`
 #[derive(Clone)]
-pub enum SubKeyNodes<'h, B: ByteSlice> {
+pub enum SubKeyNodes<'h, B: SplitByteSlice> {
     IndexRoot(IndexRootKeyNodes<'h, B>),
     Leaf(LeafKeyNodes<'h, B>),
 }
 
 impl<'h, B> SubKeyNodes<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     pub(crate) fn new(hive: &'h Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         let subkeys_list = SubkeysList::new(hive, cell_range)?;
@@ -155,7 +157,7 @@ where
 
 impl<'h, B> Iterator for SubKeyNodes<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     type Item = Result<KeyNode<'h, B>>;
 
@@ -195,7 +197,7 @@ where
     }
 }
 
-impl<'h, B> FusedIterator for SubKeyNodes<'h, B> where B: ByteSlice {}
+impl<'h, B> FusedIterator for SubKeyNodes<'h, B> where B: SplitByteSlice {}
 
 /// Iterator over
 ///   all subkeys of a [`KeyNode`],
@@ -205,14 +207,14 @@ impl<'h, B> FusedIterator for SubKeyNodes<'h, B> where B: ByteSlice {}
 /// Refer to them for a more technical documentation.
 ///
 /// On-Disk Signatures: `lf`, `lh`, `li`, `ri`
-pub(crate) enum SubKeyNodesMut<'h, B: ByteSliceMut> {
+pub(crate) enum SubKeyNodesMut<'h, B: SplitByteSliceMut> {
     IndexRoot(IndexRootKeyNodesMut<'h, B>),
     Leaf(LeafKeyNodesMut<'h, B>),
 }
 
 impl<'h, B> SubKeyNodesMut<'h, B>
 where
-    B: ByteSliceMut,
+    B: SplitByteSliceMut,
 {
     pub(crate) fn new(hive: &'h mut Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         let subkeys_list = SubkeysList::new(&*hive, cell_range)?;

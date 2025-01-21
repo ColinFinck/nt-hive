@@ -1,15 +1,17 @@
-// Copyright 2020-2023 Colin Finck <colin@reactos.org>
+// Copyright 2020-2025 Colin Finck <colin@reactos.org>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use core::mem;
 use core::ops::Range;
 use core::ptr;
 
-use ::byteorder::{BigEndian, ByteOrder, LittleEndian};
 use bitflags::bitflags;
 use enumn::N;
 use memoffset::offset_of;
-use zerocopy::{AsBytes, ByteSlice, FromBytes, FromZeroes, Ref, Unaligned, U16, U32};
+use zerocopy::byteorder::LittleEndian;
+use zerocopy::{
+    FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned, U16, U32,
+};
 
 use crate::big_data::{BigDataSlices, BIG_DATA_SEGMENT_SIZE};
 use crate::error::{NtHiveError, Result};
@@ -39,7 +41,7 @@ bitflags! {
 
 /// Zero-copy representation of raw Key Value data, returned by [`KeyValue::data`].
 #[derive(Clone)]
-pub enum KeyValueData<'h, B: ByteSlice> {
+pub enum KeyValueData<'h, B: SplitByteSlice> {
     /// The data fits into a single cell.
     /// Contains the contiguous range of data bytes.
     Small(&'h [u8]),
@@ -50,7 +52,7 @@ pub enum KeyValueData<'h, B: ByteSlice> {
 
 impl<'h, B> KeyValueData<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     #[cfg(feature = "alloc")]
     pub fn into_vec(self) -> Result<Vec<u8>> {
@@ -90,7 +92,7 @@ pub enum KeyValueDataType {
 
 /// On-Disk Structure of a Key Value header.
 #[allow(dead_code)]
-#[derive(AsBytes, FromBytes, FromZeroes, Unaligned)]
+#[derive(FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned)]
 #[repr(packed)]
 struct KeyValueHeader {
     signature: [u8; 2],
@@ -109,7 +111,7 @@ struct KeyValueHeader {
 ///
 /// [`KeyNode`]: crate::key_node::KeyNode
 #[derive(Clone)]
-pub struct KeyValue<'h, B: ByteSlice> {
+pub struct KeyValue<'h, B: SplitByteSlice> {
     hive: &'h Hive<B>,
     header_range: Range<usize>,
     data_range: Range<usize>,
@@ -117,7 +119,7 @@ pub struct KeyValue<'h, B: ByteSlice> {
 
 impl<'h, B> KeyValue<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     pub(crate) fn new(hive: &'h Hive<B>, cell_range: Range<usize>) -> Result<Self> {
         let header_range = byte_subrange(&cell_range, mem::size_of::<KeyValueHeader>())
@@ -139,7 +141,7 @@ where
     }
 
     fn header(&self) -> Ref<&[u8], KeyValueHeader> {
-        Ref::new(&self.hive.data[self.header_range.clone()]).unwrap()
+        Ref::from_bytes(&self.hive.data[self.header_range.clone()]).unwrap()
     }
 
     /// Returns the raw data bytes as [`KeyValueData`].
@@ -273,8 +275,10 @@ where
 
             // Ensure that this is a REG_DWORD or REG_DWORD_BIG_ENDIAN data type.
             match self.data_type()? {
-                KeyValueDataType::RegDWord => Ok(LittleEndian::read_u32(data)),
-                KeyValueDataType::RegDWordBigEndian => Ok(BigEndian::read_u32(data)),
+                KeyValueDataType::RegDWord => Ok(u32::from_le_bytes(data.try_into().unwrap())),
+                KeyValueDataType::RegDWordBigEndian => {
+                    Ok(u32::from_be_bytes(data.try_into().unwrap()))
+                }
                 data_type => Err(NtHiveError::InvalidKeyValueDataType {
                     expected: &[
                         KeyValueDataType::RegDWord,
@@ -333,7 +337,7 @@ where
 
             // Ensure that this is a REG_QWORD data type.
             match self.data_type()? {
-                KeyValueDataType::RegQWord => Ok(LittleEndian::read_u64(data)),
+                KeyValueDataType::RegQWord => Ok(u64::from_le_bytes(data.try_into().unwrap())),
                 data_type => Err(NtHiveError::InvalidKeyValueDataType {
                     expected: &[KeyValueDataType::RegQWord],
                     actual: data_type,
@@ -412,7 +416,7 @@ where
 
 impl<'h, B> PartialEq for KeyValue<'h, B>
 where
-    B: ByteSlice,
+    B: SplitByteSlice,
 {
     fn eq(&self, other: &Self) -> bool {
         ptr::eq(self.hive, other.hive)
@@ -421,7 +425,7 @@ where
     }
 }
 
-impl<'h, B> Eq for KeyValue<'h, B> where B: ByteSlice {}
+impl<'h, B> Eq for KeyValue<'h, B> where B: SplitByteSlice {}
 
 #[cfg(feature = "alloc")]
 type RegMultiSZCharIter<'h> = Map<
@@ -433,7 +437,7 @@ type RegMultiSZCharIter<'h> = Map<
 #[derive(Clone)]
 pub struct RegMultiSZStrings<'h, B>
 where
-    B: ByteSlice + 'h,
+    B: SplitByteSlice + 'h,
 {
     char_iter: Option<RegMultiSZCharIter<'h>>,
     big_iter: Option<BigDataSlices<'h, B>>,
@@ -442,7 +446,7 @@ where
 #[cfg(feature = "alloc")]
 impl<'h, B> RegMultiSZStrings<'h, B>
 where
-    B: ByteSlice + 'h,
+    B: SplitByteSlice + 'h,
 {
     fn small(data: &'h [u8]) -> Self {
         Self {
@@ -479,7 +483,7 @@ where
 #[cfg(feature = "alloc")]
 impl<'h, B> Iterator for RegMultiSZStrings<'h, B>
 where
-    B: ByteSlice + 'h,
+    B: SplitByteSlice + 'h,
 {
     type Item = Result<String>;
 
@@ -532,7 +536,7 @@ where
 }
 
 #[cfg(feature = "alloc")]
-impl<'h, B> FusedIterator for RegMultiSZStrings<'h, B> where B: ByteSlice + 'h {}
+impl<'h, B> FusedIterator for RegMultiSZStrings<'h, B> where B: SplitByteSlice + 'h {}
 
 #[cfg(test)]
 mod tests {
